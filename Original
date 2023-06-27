@@ -1,0 +1,4492 @@
+//
+// AuthenticationViewModel.swift
+// Favourites
+//
+// Created by Peter Friese on 08.07.2022
+// Copyright © 2022 Google LLC.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import Foundation
+import FirebaseAuth
+
+enum AuthenticationState {
+  case unauthenticated
+  case authenticating
+  case authenticated
+}
+
+enum AuthenticationFlow {
+  case login
+  case signUp
+}
+
+@MainActor
+class AuthenticationViewModel: ObservableObject {
+  @Published var email = ""
+  @Published var password = ""
+  @Published var confirmPassword = ""
+
+  @Published var flow: AuthenticationFlow = .login
+
+  @Published var isValid  = false
+  @Published var authenticationState: AuthenticationState = .unauthenticated
+  @Published var errorMessage = ""
+  @Published var user: User?
+  @Published var displayName = ""
+
+  init() {
+    registerAuthStateHandler()
+
+    $flow
+      .combineLatest($email, $password, $confirmPassword)
+      .map { flow, email, password, confirmPassword in
+        flow == .login
+          ? !(email.isEmpty || password.isEmpty)
+          : !(email.isEmpty || password.isEmpty || confirmPassword.isEmpty)
+      }
+      .assign(to: &$isValid)
+  }
+
+  private var authStateHandler: AuthStateDidChangeListenerHandle?
+
+  func registerAuthStateHandler() {
+    if authStateHandler == nil {
+      authStateHandler = Auth.auth().addStateDidChangeListener { auth, user in
+        self.user = user
+        self.authenticationState = user == nil ? .unauthenticated : .authenticated
+        self.displayName = user?.email ?? ""
+      }
+    }
+  }
+
+  func switchFlow() {
+    flow = flow == .login ? .signUp : .login
+    errorMessage = ""
+  }
+
+  private func wait() async {
+    do {
+      print("Wait")
+      try await Task.sleep(nanoseconds: 1_000_000_000)
+      print("Done")
+    }
+    catch {
+      print(error.localizedDescription)
+    }
+  }
+
+  func reset() {
+    flow = .login
+    email = ""
+    password = ""
+    confirmPassword = ""
+  }
+}
+
+// MARK: - Email and Password Authentication
+
+extension AuthenticationViewModel {
+  func signInWithEmailPassword() async -> Bool {
+    authenticationState = .authenticating
+    do {
+      try await Auth.auth().signIn(withEmail: email, password: password)
+      return true
+    }
+    catch  {
+      print(error)
+      errorMessage = error.localizedDescription
+      authenticationState = .unauthenticated
+      return false
+    }
+  }
+
+  func signUpWithEmailPassword() async -> Bool {
+    authenticationState = .authenticating
+    do  {
+      try await Auth.auth().createUser(withEmail: email, password: password)
+      return true
+    }
+    catch {
+      print(error)
+      errorMessage = error.localizedDescription
+      authenticationState = .unauthenticated
+      return false
+    }
+  }
+
+  func signOut() {
+    do {
+      try Auth.auth().signOut()
+      errorMessage = ""
+    }
+    catch {
+      print(error)
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func deleteAccount() async -> Bool {
+    do {
+      try await user?.delete()
+      return true
+    }
+    catch {
+      errorMessage = error.localizedDescription
+      return false
+    }
+  }
+}
+
+//
+//  Calendar+Extension.swift
+//  CalendarHabbits
+//
+//  Created by Andrei Panasenko on 19.08.2022.
+//
+
+import Foundation
+
+extension Calendar {
+    
+    func makeDays() -> [Date] {
+        
+        let calendar = Calendar(identifier: .iso8601)
+        
+        guard let lastDate = Calendar.current.date(byAdding: .weekOfMonth, value: -1, to: Date()),
+              let nextDate = Calendar.current.date(byAdding: .weekOfMonth, value: +1, to: Date()) else { return [] }
+        
+        let firstWeek = calendar.dateInterval(of: .weekOfMonth, for: lastDate)
+        let lastWeek = calendar.dateInterval(of: .weekOfMonth, for: nextDate)
+        let dateInterval = DateInterval(start: firstWeek!.start, end: lastWeek!.end)
+        
+        return calendar.generateDays(for: dateInterval)
+    }
+    
+    
+    func generatedDates(for dateInterval: DateInterval, matching components: DateComponents) -> [Date] {
+        var dates = [dateInterval.start]
+        
+        enumerateDates(startingAfter: dateInterval.start, matching: components, matchingPolicy: .nextTime) { date, _, stop in
+            guard let date = date else { return }
+            
+            guard date < dateInterval.end else {
+                stop = true
+                return
+            }
+            
+            dates.append(date)
+        }
+        return dates
+    }
+    
+    func generateDays(for dateInterval: DateInterval) -> [Date] {
+        generatedDates(for: dateInterval, matching: dateComponents([.hour, .minute, .second], from: dateInterval.start))
+    }
+}
+
+//
+//  CardModel.swift
+//  looggin
+//
+//  Created by eddy mintus on 2023-02-15.
+//
+
+import Foundation
+import SwiftUI
+
+struct Model: Identifiable {
+    var id = UUID()
+    var title: String
+    var platformName: String
+    var indexURL: String
+    var systemIcon: String
+    
+    var platformIcon: Image {
+        Image(systemName: systemIcon)
+    }
+}
+
+
+
+var models = [
+    Model(title: "Gratitude", platformName: "Gratitude", indexURL: "Gratitude", systemIcon: "heart.text.square.fill"),
+    Model(title: "Open Journal", platformName: "Open Journal", indexURL: "OpenJournal", systemIcon: "note.text.badge.plus"),
+    Model(title: "OCD Form", platformName: "Track your thoughts", indexURL: "OCDForm", systemIcon: "exclamationmark.arrow.circlepath"),
+    Model(title: "Mood Check", platformName: "Check your mood", indexURL: "MoodCaptureView", systemIcon: "theatermasks")
+]
+
+//
+//  Color+Extension.swift
+//  CalendarHabbits
+//
+//  Created by Andrei Panasenko on 18.08.2022.
+//
+
+import SwiftUI
+
+extension Color {
+    enum CustomColors: String {
+        case backgroundColor = "backgroundColor"
+        case currentSelectedColor = "currentSelectedColor"
+        case futureColor = "futureColor"
+        case passedColor = "passedColor"
+        
+        internal var color: Color {
+            return Color(self.rawValue)
+        }
+    }
+}
+
+//
+//  Date+Extension.swift
+//  CalendarHabbits
+//
+//  Created by Andrei Panasenko on 19.08.2022.
+//
+
+import Foundation
+
+extension Date {
+    func startOfMonth(using calendar: Calendar) -> Date {
+        calendar.date(from: calendar.dateComponents([.year, .month], from: self)) ?? self
+    }
+}
+
+//
+//  DateFormatter+Extension.swift
+//  CalendarHabbits
+//
+//  Created by Andrei Panasenko on 19.08.2022.
+//
+
+import Foundation
+
+extension DateFormatter {
+    convenience init(dateFormat: String, calendar: Calendar) {
+        self.init()
+        self.dateFormat = dateFormat
+        self.calendar = calendar
+        self.locale = Locale(identifier: "js_JP")
+    }
+}
+
+
+//
+//  FormSelector.swift
+//  looggin
+//
+//  Created by eddy mintus on 2023-02-15.
+//
+
+import Foundation
+import SwiftUI
+import Firebase
+
+
+
+struct FormSelector: View {
+    @Binding var selectedMood: String?
+    @Binding var selectedCategoryString: String
+    @State private var selectedForm: String?
+    @Binding var isPresented: Bool
+    @State private var isShowing: Bool = false
+    let db: Firestore
+    let userID: String?
+    @ObservedObject var authentication: Authentication
+
+    var body: some View {
+        NavigationView {
+            ZStack{
+                List {
+                    ForEach(models) { model in
+                        NavigationLink(destination: AnyView(getViewFor(indexURL: model.indexURL))) {
+                            CardView(model: model)
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .overlay(
+                            Divider(), alignment: .bottom
+                            
+                            )}
+                }
+                .padding()
+                .navigationBarTitle("Form Selector")
+                .scrollContentBackground(.hidden)
+                .background(Color.white)
+                .navigationBarItems(leading: Button(action: {
+                    self.isPresented = false
+                }) {
+                    Text("Cancel")
+                })
+            }
+        }
+    }
+    func getViewFor(indexURL: String) -> some View {
+        switch indexURL {
+        case "Gratitude":
+            return AnyView(Gratitude(isPresented: $isPresented))
+        case "OpenJournal":
+            return AnyView(OpenJournal(isPresented: $isPresented))
+        case "OCDForm":
+            return AnyView(OCDForm(isPresented: $isPresented))
+        case "MoodCaptureView":
+            return AnyView(MoodCaptureView(moodCaptureViewModel: MoodCaptureViewModel(), selectedMood: $selectedMood,selectedCategoryString: $selectedCategoryString, isDisplayedInTabView: true))
+        default:
+            return AnyView(EmptyView())
+        }
+    }
+}
+
+
+
+struct CardView: View {
+    var model: Model
+    
+    var body: some View {
+        HStack(spacing: 15) {
+            model.platformIcon
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: 48, maxHeight: 48)
+                .clipShape(Circle())
+            
+            VStack(alignment: .leading, spacing: 5) {
+                Text(model.title)
+                    .font(.system(size: 18))
+                    .fontWeight(.bold)
+                Text(model.platformName)
+                    .font(.system(size: 14))
+            }
+            Spacer()
+        }
+        .padding()
+        .frame(maxHeight: 80)
+        .background(Color.white)
+        .cornerRadius(10)
+    }
+}
+
+
+//
+//  ListView.swift
+//  Notes
+//
+//  Created by eddy mintus on 2023-01-27.
+//  Copyright © 2023 Balaji. All rights reserved.
+//
+
+
+import SwiftUI
+import Firebase
+
+
+
+struct Eder: View {
+    @StateObject var viewModel = GoalsViewModel()
+    @State var dragOffset = CGSize.zero
+    @State var finalOffset: CGFloat = 0
+    @State var date = Date()
+    @State private var showAddGoalView = false
+    private static var now = Date()
+    private let calendar: Calendar
+    private let days: [Date]
+    @State private var isDisplayedInTabView = true
+    let dateFormatter: DateFormatter
+    
+    init(calendar: Calendar, isDisplayedInTabView: Bool) {
+        self._isDisplayedInTabView = State(initialValue: isDisplayedInTabView)
+        self.calendar = calendar
+        self.days = calendar.makeDays()
+        dateFormatter = DateFormatter(dateFormat: "EEE, dd MMM", calendar: calendar)
+        dateFormatter.locale = .autoupdatingCurrent
+    }
+    
+    var body: some View {
+        if isDisplayedInTabView {
+            ZStack{
+                
+                if viewModel.goals.count > 0 {
+                    Divider()
+                    
+                    GoalsList(goalsViewModel: viewModel)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    
+                }
+            }.onAppear {
+                viewModel.fetchGoals()
+            }.scrollContentBackground(.hidden)
+                .background(Color.white)
+        } else {
+            NavigationView {
+                ZStack{
+                    VStack {
+                        HStack {
+                            Text("My Goals")
+                                .font(.system(size: 40, weight: .black))
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                // show new task view
+                                self.showAddGoalView = true
+                            }) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        .padding(30)
+                        Spacer()
+                        VStack {
+                            Text(calendar.isDate(Date(), inSameDayAs: viewModel.selectedDate) ? LocalizedStringKey("today") : "\(viewModel.selectedDate, formatter: dateFormatter)")
+                            
+                            DateCellsView(days: days, calendar: calendar, selectedDate: $viewModel.selectedDate, goalsViewModel: viewModel)
+                            
+                            Spacer()
+                            
+                            if viewModel.goals.count > 0 {
+                                Divider()
+                                
+                                
+                                GoalsList(goalsViewModel: viewModel)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                
+                            }
+                        }
+                        
+                        
+                    }.onAppear {
+                        viewModel.fetchGoals()
+                        //                    print("Retrieved goals from Firestore.")
+                        
+                    }
+                    
+                    
+                }.navigationBarBackButtonHidden(true)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.white)
+                
+            }.fullScreenCover(isPresented: $showAddGoalView) {
+                AddGoalView(isPresented: $viewModel.showAddGoalView, selectedDate: $viewModel.selectedDate, habits: $viewModel.habits, selectedHabit: $viewModel.selectedHabit, viewModel: viewModel)
+            }
+        }
+    }
+}
+
+extension Date{
+    func toString(_ format: String)->String{
+        let formatter = DateFormatter()
+        formatter.dateFormat = format
+        return formatter.string(from: self)
+    }
+}
+
+
+struct AddGoalView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
+    @Environment(\.presentationMode) var presentationMode
+    var onDismiss: (() -> Void)?
+    @State var goal = ""
+    @State var description = ""
+    @Binding var selectedDate: Date
+    @Binding var habits: [String]
+    @Binding var selectedHabit: Int
+    @StateObject var viewModel = GoalsViewModel()  // Add this line
+    let userID = Auth.auth().currentUser?.uid
+    var gridItemLayout = [GridItem(.adaptive(minimum: 50))]
+    
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading) {            VStack(alignment: .leading, spacing: 10) {
+                Text("Create New Goal")
+                    .ubuntu(28, .light)
+                    .foregroundColor(.white)
+                    .padding(.vertical,15)
+                
+                
+                TitleView("GOAL NAME")
+                TextField("Enter a goal", text: $goal)
+                    .ubuntu(16, .regular)
+                    .tint(.white)
+                    .padding(.top,2)
+                
+                Rectangle()
+                    .fill(.white.opacity(0.7))
+                    .frame(height: 1)
+                
+                TitleView("DATE")
+                    .padding(.top,15)
+                
+                HStack(spacing: 12){
+                    Text(selectedDate.toString("EEEE dd, MMMM"))
+                        .ubuntu(16, .regular)
+                    
+                    /// - Custom Date Picker
+                    Image(systemName: "calendar")
+                        .font(.title3)
+                        .foregroundColor(.white)
+                        .overlay {
+                            DatePicker("", selection: $selectedDate,displayedComponents: [.date])
+                                .blendMode(.destinationOver)
+                        }
+                }
+                .offset(y: -5)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(.white.opacity(0.7))
+                        .frame(height: 1)
+                        .offset(y: 5)
+                }
+            }
+                .environment(\.colorScheme, .dark)
+                .padding(15)
+                .background(CustomColor.myColor)
+                
+                VStack(alignment: .leading, spacing: 10) {
+                    TitleView("DESCRIPTION",.gray)
+                    
+                    TextField("About Your Task", text: $description)
+                        .ubuntu(16, .regular)
+                        .padding(.top,2)
+                    
+                    Rectangle()
+                        .fill(.black.opacity(0.2))
+                        .frame(height: 1)
+                    
+                    TitleView("CATEGORY",.gray)
+                        .padding(.top,15)
+                    
+                    LazyVGrid(columns: Array(repeating: .init(.flexible(),spacing: 20), count: 3),spacing: 15) {
+                        ForEach(0 ..< habits.count) { index in
+                            Button(action: {
+                                self.selectedHabit = index
+                            }) {
+                                Text(self.habits[index])
+                                    .font(.system(size: 16))
+                                    .padding(.leading, 14)
+                                    .padding(.trailing, 30)
+                                    .padding(.vertical, 8)
+                                    .background(self.selectedHabit == index ? Color.black : Color.gray)
+                                    .foregroundColor(.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                                
+                            }
+                            
+                        }
+                        
+                        
+                        
+                    }
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 50, maxHeight: .infinity)
+                    .padding(.top, 15)
+                    Spacer()
+                }
+                .padding(15)
+//                .navigationBarTitle("New Goal", displayMode: .inline)
+                .navigationBarItems(
+                    leading: Button(action: {
+                        self.isPresented = false
+                        self.presentationMode.wrappedValue.dismiss()
+                        self.onDismiss?()
+                    }) {
+                        Text("Cancel")
+                    },
+                    trailing: Button(action: {guard !self.goal.isEmpty else { return }
+                        if !self.goal.isEmpty {
+                            let habitName = self.habits[self.selectedHabit]
+                            let goal = Goal(name: "\(habitName): \(self.goal)", description: self.description, date: self.selectedDate, icon: habitName, userID: self.userID!)
+                            self.viewModel.addGoal(goal)
+                            self.goal = ""
+                            self.description = ""
+                            self.isPresented = false
+                            self.presentationMode.wrappedValue.dismiss()
+                            self.onDismiss?()
+                        }
+                    }) {
+                        Text("Save")
+                    }
+                )
+                .background(Color(.systemBackground))
+            }
+        }
+    }
+    func TitleView(_ value: String,_ color: Color = .white.opacity(0.7))->some View{
+        Text(value)
+            .ubuntu(12, .regular)
+            .foregroundColor(color)
+    }
+}
+      
+
+struct SaveButtonView: View {
+    @Environment(\.presentationMode) var presentationMode
+    @Binding var goal: String
+    @Binding var description: String
+    @Binding var selectedDate: Date
+    @Binding var selectedHabit: Int
+    @Binding var isPresented: Bool
+    @Binding var userID: String?
+    let habits: [String]
+    let viewModel: GoalsViewModel
+    var onDismiss: (() -> Void)?
+
+    var body: some View {
+        Button(action: {
+            guard !self.goal.isEmpty else { return }
+            if !self.goal.isEmpty {
+                let habitName = self.habits[self.selectedHabit]
+                let goal = Goal(name: "\(habitName): \(self.goal)", description: self.description, date: self.selectedDate, icon: habitName, userID: self.userID!)
+                self.viewModel.addGoal(goal)
+                self.goal = ""
+                self.description = ""
+                self.isPresented = false
+                self.presentationMode.wrappedValue.dismiss()
+                self.onDismiss?()
+            }
+        }) {
+            Text("Save")
+                .ubuntu(20, .regular)
+                .foregroundColor(.white)
+                .padding(.vertical, 10)
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .background(Color.black)
+                .cornerRadius(10)
+        }
+    }
+}
+
+
+
+
+struct CustomColor {
+    static let myColor = Color("GRAY")
+    static let myColor1 = Color("Green")
+
+    // Add more here...
+}
+
+struct CategoryButton: View {
+    var title: String
+    var isSelected: Bool
+    var action: () -> Void
+    
+    var body: some View {
+        Button(action: self.action) {
+            Text(title)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 50, maxHeight: .infinity)
+
+        }
+    }
+}
+
+
+struct DateCellsView: View {
+    let days: [Date]
+    let calendar: Calendar
+    @Binding var selectedDate: Date
+    @ObservedObject var goalsViewModel: GoalsViewModel
+    @State private var dragOffset = CGSize.zero
+    @State var finalOffset: CGFloat = 0
+    private let width = UIScreen.main.bounds.size.width
+    
+    
+    var body: some View {
+        HStack {
+            ForEach(self.days, id: \.self) { date in
+                DateCellView(date: date, calendar: calendar, completionPercentage: goalsViewModel.self.getCompletionPercentage(for: date), goalsViewModel: self.goalsViewModel)
+                    .foregroundColor(calendar.isDateInToday(date) ? Color.CustomColors.currentSelectedColor.color :
+                                        date < Date() ? Color.CustomColors.passedColor.color : Color.CustomColors.futureColor.color)
+                    .overlay(RoundedRectangle(cornerRadius: 4)
+                        .stroke()
+                        .foregroundColor(Color.CustomColors.currentSelectedColor.color)
+                        .opacity(calendar.isDate(date, inSameDayAs: selectedDate) ? 1 : 0)
+                    )
+                    .onTapGesture {
+                        selectedDate = date
+                    }
+            }
+        }
+        .padding(.top, 8)
+        .offset(x: dragOffset.width)
+        .offset(x: finalOffset)
+        .gesture(DragGesture()
+            .onChanged({ value in
+                withAnimation(.spring()) {
+                    self.dragOffset = value.translation
+                }
+            })
+                .onEnded({ _ in
+                    if dragOffset.width > 150 && finalOffset != (width + 10) {
+                        withAnimation(.spring()) {
+                            finalOffset += (width + 10)
+                            dragOffset = .zero
+                        }
+                    } else if dragOffset.width < -150 && finalOffset != -(width + 10) {
+                        withAnimation(.spring()) {
+                            finalOffset -= (width + 10)
+                            dragOffset = .zero
+                        }
+                        
+                    } else if dragOffset.width < -150 && finalOffset != -(width + 10) {
+                        withAnimation(.spring()) {
+                            finalOffset -= (width + 10)
+                            dragOffset = .zero
+                        }
+                        
+                    } else {
+                        withAnimation(.spring()) {
+                            dragOffset = .zero
+                        }
+                    }
+                })
+        )
+    }
+}
+
+    
+    
+    
+    
+struct DateCellView: View {
+    let date: Date
+    let calendar: Calendar
+    let dateFormatter: DateFormatter
+    let weekDayFormatter: DateFormatter
+    let completionPercentage: Float
+    
+    @State var progress = Float.random(in: 0 ... 1)
+    
+    private let width = UIScreen.main.bounds.size.width
+    
+    @ObservedObject var goalsViewModel: GoalsViewModel
+    
+    init(date: Date, calendar: Calendar, completionPercentage: Float, goalsViewModel: GoalsViewModel) {
+        self.date = date
+        self.calendar = calendar
+        self.completionPercentage = completionPercentage
+        self.goalsViewModel = goalsViewModel
+        
+        dateFormatter = DateFormatter(dateFormat: "d", calendar: calendar)
+        weekDayFormatter = DateFormatter(dateFormat: "EEE", calendar: calendar)
+        weekDayFormatter.locale = .autoupdatingCurrent
+    }
+    var body: some View {
+        ZStack {
+            VStack {
+                if #available(iOS 14.0, *) {
+                    Text(date, formatter: weekDayFormatter)
+                        .scaledToFill()
+                        .minimumScaleFactor(0.01)
+                        .lineLimit(1)
+                } else {
+                    // Fallback on earlier versions
+                }
+                
+                Spacer()
+                
+                if #available(iOS 14.0, *) {
+                    ProgressView("", value: completionPercentage)
+                } else {
+                    // Fallback on earlier versions
+                }
+            }
+            
+            if #available(iOS 14.0, *) {
+                Text(date, formatter: dateFormatter)
+                    .scaledToFit()
+                    .minimumScaleFactor(0.01)
+                    .lineLimit(1)
+                    .onTapGesture {
+                        goalsViewModel.selectedDate = date
+                    }
+                    .background(
+                        Circle()
+                            .fill(Color.clear)
+                            .contentShape(Circle())
+                    )
+            } else {
+                // Fallback on earlier versions
+            }
+        }
+        .padding(10)
+        .frame(width: width / 8, height: width / 4)
+    }
+}
+
+    
+    
+    
+struct GoalsList: View {
+    @ObservedObject var goalsViewModel: GoalsViewModel
+
+    var body: some View {
+        List {
+            ForEach(goalsViewModel.goals) { goal in
+                if Calendar.current.isDate(goal.date, inSameDayAs: goalsViewModel.selectedDate) {
+                    GoalRow(goal: goal)
+                        .swipeActions(edge: .trailing) {
+                            Button {
+                                goalsViewModel.deleteGoal(goal)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }.tint(.red)
+                        }
+                        .swipeActions(edge: .leading) {
+                            Button {
+                                goalsViewModel.markGoalCompleted(goal)
+                            } label: {
+                                Label(goal.completed ? "Mark as Not Completed" : "Mark as Completed", systemImage: "checkmark")
+                            }.tint(goal.completed ? .gray : .green)
+
+                            Button {
+                                goalsViewModel.repeatGoal(goal)
+                            } label: {
+                                Label("Repeat", systemImage: "arrow.clockwise")
+                            }
+                        }
+                }
+            }
+            .onAppear {
+                goalsViewModel.selectedDate = Date()
+                
+            }
+            .padding()
+        }
+    }
+}
+
+
+struct GoalRow: View {
+    var goal: Goal
+
+    var body: some View {
+        HStack {
+            goal.icon.icon
+            VStack(alignment: .leading) { // Use a VStack to stack the name and description vertically
+                Text(goal.name)
+                    .ubuntu(16, .regular)
+                    .foregroundColor(goal.completed ? .green : .black)
+                if !goal.description.isEmpty { // Show the description only if it's not empty
+                    Text(goal.description)
+                        .ubuntu(14, .light)
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                }
+            }
+        }
+        .foregroundColor(goal.completed ? Color.green : Color.black)
+    }
+}
+
+    
+    
+    
+struct Goal: Identifiable {
+    var id: String?
+    let name: String
+    let description: String // Add the description parameter here
+    let date: Date
+    let icon: String
+    let userID: String
+    var completed: Bool = false
+    
+}
+
+extension String {
+    var icon: Image {
+        let icons: [String: Image] = [
+            "Meditation": Image(systemName: "meditation"),
+            "Exercise": Image(systemName: "person.crop.circle.badge.checkmark"),
+            "Reading": Image(systemName: "book"),
+            "Eating Healthy": Image(systemName: "leaf.arrow.circlepath"),
+            "Sleep": Image(systemName: "bed"),
+            "Water Intake": Image(systemName: "waveform.path.ecg"),
+            "Gratitude Practice": Image(systemName: "heart.circle"),
+            "Journaling": Image(systemName: "square.and.pencil"),
+            "Spending Time Outdoors": Image(systemName: "sun.max"),
+            "Decluttering": Image(systemName: "trash"),
+            "General": Image(systemName: "checkmark.circle")
+        ]
+        return icons[self] ?? Image(systemName: "questionmark")
+    }
+}
+
+class GoalsViewModel: ObservableObject {
+    @Published var goals: [Goal] = []
+    @Published var description = ""
+    @Published var selectedDate = Date()
+    @Published var habits = ["General","Meditation", "Exercise", "Reading", "Eating Healthy", "Sleep", "Water Intake", "Gratitude Practice", "Journaling", "Spending Time Outdoors", "Decluttering"]
+    @Published var selectedHabit = 10
+    @Published var docID = ""
+    @Published var endDate = Date()
+    @Published var showGreeting = true
+    @Published var isCompleted: Bool = false
+    @State var showAddGoalView = false
+    let userID = Auth.auth().currentUser?.uid
+    let db = Firestore.firestore()
+
+    private let calendar = Calendar.current
+    private let dateFormatter = DateFormatter()
+    private var days = [Date]()
+    private let width = UIScreen.main.bounds.size.width
+    
+    init() {
+        print("GoalsViewModel initialized")
+        dateFormatter.locale = .autoupdatingCurrent
+        dateFormatter.dateFormat = "EEE, dd MMM"
+        days = calendar.makeDays()
+        self.fetchGoals()
+    }
+
+    
+    func addGoal(_ goal: Goal) {
+        let document = db.collection("users").document(userID!).collection("goals").document()
+        let goalData: [String: Any] = [
+            "name": goal.name,
+            "description": goal.description,
+            "date": goal.date,
+            "icon": goal.icon,
+            "userID": goal.userID,
+            "completed": goal.completed,
+            "timestamp": Timestamp(date: Date())
+        ]
+        document.setData(goalData) { error in
+            if let error = error {
+                print("Error adding goal: \(error.localizedDescription)")
+            } else {
+                print("Goal added successfully")
+            }
+        }
+    }
+    
+    func deleteGoal(_ goal: Goal) {
+        if let id = goal.id {
+            db.collection("users").document(userID!).collection("goals").document(id).delete { error in
+                if let error = error {
+                    print("Error deleting goal: \(error.localizedDescription)")
+                } else {
+                    print("Goal deleted successfully")
+                }
+            }
+        }
+    }
+    
+    func markGoalCompleted(_ goal: Goal) {
+        if let index = self.goals.firstIndex(where: { $0.id == goal.id }) {
+            var goal = self.goals[index]
+            goal.completed.toggle()
+            self.goals[index] = goal
+            saveGoal(goal: goal)
+        }
+    }
+    
+    func repeatGoal(_ goal: Goal) {
+        let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: goal.date)!
+        let nextDayGoal = Goal(name: goal.name, description: description, date: nextDay, icon: goal.icon, userID: userID!, completed: false)
+        saveGoal(goal: nextDayGoal)
+    }
+    
+    func fetchGoals() {
+        if let userID = Auth.auth().currentUser?.uid {
+            let goalsRef = Firestore.firestore().collection("users").document(userID).collection("goals")
+            goalsRef.addSnapshotListener { (querySnapshot, error) in
+                guard let documents = querySnapshot?.documents else {
+                    print("No documents")
+                    return
+                }
+                
+                self.goals = documents.compactMap { (queryDocumentSnapshot) -> Goal? in
+                    let data = queryDocumentSnapshot.data()
+                    let id = queryDocumentSnapshot.documentID
+                    
+                    guard let name = data["name"] as? String,
+                          let icon = data["icon"] as? String,
+                          let userID = data["userID"] as? String,
+                          let completed = data["completed"] as? Bool,
+                          let timestamp = data["date"] as? Timestamp,
+                          let description = data["description"] as? String // Add this line to retrieve the description data
+                    else {
+                        return nil
+                    }
+                    
+                    let goal = Goal(id: id, name: name, description: description, date: timestamp.dateValue(), icon: icon, userID: userID, completed: completed)
+                    
+                    return goal
+                }
+            }
+        }
+    }
+
+    func saveGoal(goal: Goal) {
+        var ref: DocumentReference
+        
+        if let id = goal.id {
+            ref = db.collection("users").document(userID!).collection("goals").document(id)
+        } else {
+            ref = db.collection("users").document(userID!).collection("goals").document()
+        }
+        
+        ref.setData([
+            "name": goal.name,
+            "date": goal.date,
+            "icon": goal.icon,
+            "userID": goal.userID,
+            "completed": goal.completed,
+            "timestamp": Timestamp(date: Date())
+        ]) { error in
+            if let error = error {
+                print("Error saving goal: \(error.localizedDescription)")
+            } else {
+                print("Goal saved successfully")
+            }
+        }
+    }
+    func markGoalIncomplete(_ goal: Goal) {
+        if let index = self.goals.firstIndex(where: { $0.id == goal.id }) {
+            var goal = self.goals[index]
+            goal.completed.toggle()
+            self.goals[index] = goal
+            saveGoal(goal: goal)
+        }
+    }
+    
+    func updateGoal(_ goal: Goal) {
+        if let index = self.goals.firstIndex(where: { $0.id == goal.id }) {
+            self.goals[index] = goal
+            saveGoal(goal: goal)
+        }
+    }
+    
+    func loadHabits() {
+        db.collection("habits").getDocuments { querySnapshot, error in
+            guard let documents = querySnapshot?.documents else {
+                print("No documents in Firestore")
+                return
+            }
+            
+            self.habits = documents.compactMap { queryDocumentSnapshot -> String? in
+                let data = queryDocumentSnapshot.data()
+                guard let name = data["name"] as? String else {
+                    return nil
+                }
+                return name
+            }
+        }
+    }
+    
+    func getGoalsForSelectedDate() -> [Goal] {
+        return goals.filter { Calendar.current.isDate($0.date, inSameDayAs: selectedDate) }
+    }
+    
+    func getCompletedGoals() -> [Goal] {
+        return goals.filter { $0.completed }
+    }
+    
+    func getIncompleteGoals() -> [Goal] {
+        return goals.filter { !$0.completed }
+    }
+    
+    func getCompletionPercentage(for date: Date) -> Float {
+        let completedGoals = goals.filter { goal in
+            calendar.isDate(goal.date, inSameDayAs: date) && goal.completed
+        }
+        let totalGoals = goals.filter { goal in
+            calendar.isDate(goal.date, inSameDayAs: date)
+        }
+        return totalGoals.count == 0 ? 0 : Float(completedGoals.count) / Float(totalGoals.count)
+    }
+    func newGBtnView() -> some View {
+        VStack {
+            Button(action: { self.showAddGoalView = true }) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 38))
+                    .foregroundColor(.blue)
+            }
+        }
+        .padding(.bottom, 32)
+        .padding(.trailing, 32)
+    }
+}
+
+extension Calendar {
+    func makeDays(for date: Date = Date()) -> [Date] {
+        let startOfMonth = startOfDay(for: date.startOfMonth())
+        guard let numberOfDays = range(of: .day, in: .month, for: date)?.count else { return [] }
+        return (0..<numberOfDays).compactMap { offset in
+            return self.date(byAdding: .day, value: offset, to: startOfMonth)
+        }
+    }
+}
+
+extension Date {
+    func startOfMonth() -> Date {
+        return Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: self))!
+    }
+}
+
+extension DateFormatter {
+    convenience init(customDateFormat dateFormat: String, calendar: Calendar) {
+        self.init()
+        self.calendar = calendar
+        self.dateFormat = dateFormat
+    }
+}
+
+
+import SwiftUI
+import HealthKit
+
+struct SleepView: View {
+    @State private var sleepData: String = "No sleep data"
+    
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(Color.blue)
+            .frame(width: 200, height: 100)
+            .overlay(
+                VStack {
+                    Text("Sleep data")
+                        .foregroundColor(.white)
+                        .font(.headline)
+                    Text(sleepData)
+                        .foregroundColor(.white)
+                }
+            )
+            .onAppear {
+                let healthStore = HKHealthStore()
+                let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
+                
+                healthStore.requestAuthorization(toShare: nil, read: [sleepType]) { success, error in
+                    if success {
+                        let predicate = HKQuery.predicateForSamples(withStart: Date.distantPast, end: Date(), options: .strictEndDate)
+                        let query = HKSampleQuery(sampleType: sleepType, predicate: predicate, limit: 1, sortDescriptors: nil) { query, results, error in
+                            if let sleepSamples = results as? [HKCategorySample], let sleepSample = sleepSamples.first {
+                                let duration = sleepSample.endDate.timeIntervalSince(sleepSample.startDate)
+                                DispatchQueue.main.async {
+                                    self.sleepData = "\(sleepSample.value == HKCategoryValueSleepAnalysis.asleep.rawValue ? "Asleep" : "Awake") for \(Int(duration / 60)) minutes"
+                                }
+                            }
+                        }
+                        
+                        healthStore.execute(query)
+                    }
+                }
+            }
+    }
+}
+
+
+struct ActivityView: View {
+    @State private var activityData: String = "No activity data"
+    
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(Color.green)
+            .frame(width: 200, height: 100)
+            .overlay(
+                VStack {
+                    Text("Activity data")
+                        .foregroundColor(.white)
+                        .font(.headline)
+                    Text(activityData)
+                        .foregroundColor(.white)
+                }
+            )
+            .onAppear {
+                let healthStore = HKHealthStore()
+                let activeEnergyType = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!
+                
+                healthStore.requestAuthorization(toShare: nil, read: [activeEnergyType]) { success, error in
+                    if success {
+                        let calendar = Calendar.current
+                        let date = calendar.startOfDay(for: Date())
+                        var components = DateComponents()
+                        components.day = 1
+                        let endDate = calendar.date(byAdding: components, to: date)!
+                        let predicate = HKQuery.predicateForSamples(withStart: date, end: endDate, options: .strictEndDate)
+                        let query = HKStatisticsQuery(quantityType: activeEnergyType, quantitySamplePredicate: predicate, options: .cumulativeSum) { query, result, error in
+                            if let quantity = result?.sumQuantity() {
+                                DispatchQueue.main.async {
+                                    self.activityData = "\(Int(quantity.doubleValue(for: HKUnit.kilocalorie())) ) calories burned"
+                                }
+                            }
+                        }
+                        
+                        healthStore.execute(query)
+                    }
+                }
+            }
+    }
+}
+
+
+//
+//  Hero.swift
+//  looggin
+//
+//
+
+import Foundation
+import Firebase
+import SwiftUI
+import CoreGraphics
+import SwiftUICharts
+
+struct Content: View {
+    @ObservedObject var authentication: Authentication
+    @Binding var selectedMood: String?
+    @Binding var selectedCategoryString: String
+
+
+
+    var body: some View {
+        MainView(authentication: authentication, selectedCategoryString: $selectedCategoryString)
+    }
+}
+
+struct Homepage: View {
+    @StateObject var viewModel = GoalsViewModel()
+    @ObservedObject var authentication: Authentication
+    @State var show = false
+    @State var docID = ""
+    @State var txt = ""
+    @State var trigger = ""
+    @State var obsession = ""
+    @State var compulsion = ""
+    @State var difficultyLevel = 0
+    @State var anxietyLevel = 0
+    @State var thoughtsFeelings = ""
+    @State var notes = ""
+    @State var email = ""
+    @State var userName: String = ""
+    @Binding var selectedCategoryString: String
+    @State private var showingEditView = false
+    @State var quote: String = ""
+    @State var author: String = ""
+    @State var lastSeen: Date = Date()
+    @State var isLoading: Bool = true
+    @State var category: String = "happiness"
+    @State var selectedDate: Date = Date()
+    @State var goals: [Goal] = []
+    let userID = Auth.auth().currentUser?.uid
+    @State private var currentTab = 0
+    @State private var selectedTab = 0
+    @State private var mood: String = ""
+    @State var nextRefreshDate: Date = Date()
+    @State var likedQuotes: [Quote] = []
+    @State private var showMoodCaptureView = false
+    @State private var isShowingMoodCapture = false
+    @State private var showFormSelector = false
+    @State private var showAddGoalView = false
+    @State private var goal = ""
+    @State private var habits = ["Meditation", "Exercise", "Reading", "Eating Healthy", "Sleep", "Water Intake", "Gratitude Practice", "Journaling", "Spending Time Outdoors", "Decluttering", "General"]
+    @State private var selectedHabit = 10
+    @State var selectedGoal: Goal?
+
+    @State var selectedMood: String?
+    @State var isLiked: Bool = false
+    
+    @State private var needsCheckIn: Bool?
+
+    
+    let db = Firestore.firestore()
+    
+    struct Quote: Decodable {
+        let quote: String
+        let author: String
+    }
+    
+    init(authentication: Authentication, selectedCategoryString: Binding<String>) {
+        self.authentication = authentication
+        self._selectedCategoryString = selectedCategoryString // Move this line before the usage of 'selectedCategoryString'
+        self._userName = State(initialValue: userName)
+
+        // refreshQuote(manualRefresh: true) // fetch a new quote whenever the view is initialized
+        retrieveUserData()
+    }
+
+
+    
+    func retrieveUserData() {
+        let userID = Auth.auth().currentUser!.uid
+        let db = Firestore.firestore()
+        db.collection("users").document(userID).getDocument { (document, error) in
+            if let document = document, document.exists {
+                let data = document.data()
+                self.authentication.userName = data?["name"] as? String ?? ""
+            } else {
+                print("Error retrieving user data: \(error?.localizedDescription ?? "")")
+            }
+        }
+    }
+    
+    
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.white
+                    .onAppear {
+                        self.shouldCheckInMood { needsCheckIn in
+                            self.needsCheckIn = needsCheckIn
+                        }
+                        if self.nextRefreshDate <= Date() {
+                                                self.refreshQuote(forceRefresh: true)
+                                                self.nextRefreshDate = Calendar.current.date(byAdding: .minute, value: 360, to: Date())!
+                                            }                    }
+                GeometryReader { geometry in
+                    ScrollView(showsIndicators: false) {
+                                           LazyVStack(spacing: 20) {
+                                               Text("Hello, \(authentication.userName)")
+                                                   .font(.title)
+                                               VStack(spacing: 20) {
+                                                   if let needsCheckIn = self.needsCheckIn {
+                                                           Text(needsCheckIn ? "How are you feeling today?" : "Take the time to check in your mood...")
+                                                       } else {
+                                                           // Handle the case where the value of needsCheckIn is not yet available
+                                                       }
+                                                   MoodSelectorView(selectedMood: $selectedMood, selectedCategoryString: $selectedCategoryString)
+                                                   Divider()
+                                QuoteView(quote: self.quote, author: self.author, isLoading: self.isLoading)
+
+                                    HStack(alignment: .bottom) {
+                                        Spacer()
+                                        Button(action: {
+                                            if self.isLiked {
+                                                // "Unlike" button action
+                                                if let index = self.likedQuotes.firstIndex(where: { $0.quote == self.quote && $0.author == self.author }) {
+                                                    self.likedQuotes.remove(at: index)
+                                                }
+                                                self.deleteLikedQuotes(quote: self.quote, author: self.author)
+                                            } else {
+                                                // "Like" button action
+                                                self.likedQuotes.append(Quote(quote: self.quote, author: self.author))
+                                                self.saveLikedQuotes(quote: self.quote, author: self.author)
+                                            }
+                                            self.isLiked.toggle()
+                                        }) {
+                                            Image(systemName: self.isLiked ? "heart.fill" : "heart")
+                                                .foregroundColor(self.isLiked ? Color.green : Color.gray)
+                                        }
+                                        
+                                        Button(action: {
+                                            // "Share" button action
+                                            let quoteToShare = "\(quote) - \(author)"
+                                            let appName = "Journal Journey"
+                                            
+                                            let renderer = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 400))
+                                            let image = renderer.image { context in
+                                                UIColor.white.setFill()
+                                                context.fill(CGRect(x: 0, y: 0, width: 600, height: 400))
+                                                
+                                                let quoteFont = UIFont.systemFont(ofSize: 24, weight: .bold)
+                                                let appNameFont = UIFont.systemFont(ofSize: 16)
+                                                let paragraphStyle = NSMutableParagraphStyle()
+                                                paragraphStyle.alignment = .center
+                                                
+                                                let quoteAttributes: [NSAttributedString.Key: Any] = [
+                                                    .font: quoteFont,
+                                                    .foregroundColor: UIColor.black,
+                                                    .paragraphStyle: paragraphStyle
+                                                ]
+                                                let quoteSize = quoteToShare.boundingRect(with: CGSize(width: 560, height: 280), options: [.usesLineFragmentOrigin], attributes: quoteAttributes, context: nil).size
+                                                let quoteRect = CGRect(x: 20, y: 40, width: 560, height: quoteSize.height)
+                                                quoteToShare.draw(in: quoteRect, withAttributes: quoteAttributes)
+                                                
+                                                let appNameAttributes: [NSAttributedString.Key: Any] = [
+                                                    .font: appNameFont,
+                                                    .foregroundColor: UIColor.gray,
+                                                    .paragraphStyle: paragraphStyle
+                                                ]
+                                                let appNameRect = CGRect(x: 20, y: quoteRect.maxY + 20, width: 560, height: 20)
+                                                appName.draw(in: appNameRect, withAttributes: appNameAttributes)
+                                            }
+                                            
+                                            guard let pngData = image.pngData() else {
+                                                return
+                                            }
+                                            
+                                            let activityController = UIActivityViewController(activityItems: [pngData], applicationActivities: nil)
+                                            UIApplication.shared.windows.first?.rootViewController?.present(activityController, animated: true, completion: nil)
+                                        }) {
+                                            Image(systemName: "square.and.arrow.up")
+                                        }
+
+                                        
+                                        Button(action: {
+                                            print("Refresh button pressed")
+                                                self.refreshQuote(manualRefresh: true)                                        }) {
+                                            Image(systemName: "arrow.clockwise")
+                                        }
+
+                                        
+                                    }.padding(.trailing)
+                                    
+                                    Divider()
+                                    
+                                    ZStack(alignment: .top) {
+                                        TabView(selection: self.$currentTab) {
+                                            Home(isDisplayedInTabView: true, selectedMood: $selectedMood,selectedCategoryString: $selectedCategoryString).tag(0)
+                                            Eder(calendar: Calendar.current, isDisplayedInTabView: true).tag(1)
+                                        }
+                                        .tabViewStyle(PageTabViewStyle())
+                                        .frame(height: 300)
+                                        
+                                        TabBarView(currentTab: self.$currentTab)
+                                    }
+                                }
+                            }
+                        }
+                        
+//                    }
+//                .sheet(isPresented: $isShowingMoodCapture) {
+//                    MoodCaptureView(moodCaptureViewModel: MoodCaptureViewModel(),
+//                                     selectedMood: $selectedMood,
+//                                     selectedGoalTrigger: selectedGoal?.name) {
+//                        self.selectedMood = nil // set selectedMood to nil when the MoodCaptureView is dismissed
+//                    }
+
+
+                }.sheet(isPresented: $showFormSelector) {
+                        FormSelector(selectedMood: $selectedMood,selectedCategoryString: $selectedCategoryString, isPresented: self.$showFormSelector,
+                                     db: self.db,
+                                     userID: self.userID,
+                                     authentication: self.authentication
+                        )
+                        
+                    }
+                    .sheet(isPresented: $showAddGoalView) {
+                        AddGoalView(isPresented: $viewModel.showAddGoalView, selectedDate: $viewModel.selectedDate, habits: $viewModel.habits, selectedHabit: $viewModel.selectedHabit, viewModel: viewModel)
+                            .presentationDetents([.medium])
+                    }
+                }
+                .navigationBarItems(trailing: HStack {
+                    Button(action: { self.showFormSelector = true }) {
+                        Image(systemName: "pencil")
+                    }
+                    Button(action: {
+                        self.showAddGoalView = true }) {
+                            Image(systemName: "checkmark.circle")
+                        }
+                })
+            }
+            .navigationViewStyle(StackNavigationViewStyle())
+        }
+    
+    func shouldCheckInMood(completion: @escaping (Bool) -> Void) {
+        var needsCheckIn = true
+        let userID = Auth.auth().currentUser!.uid
+        let today = Date()
+        let startOfDay = Calendar.current.startOfDay(for: today)
+        let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay)!
+
+        db.collection("users").document(userID).collection("notes")
+            .whereField("from", isEqualTo: "Mood")
+            .whereField("timestamp", isGreaterThanOrEqualTo: startOfDay)
+            .whereField("timestamp", isLessThan: endOfDay)
+            .getDocuments { (querySnapshot, error) in
+                if let error = error {
+                    print("Error getting mood note: \(error.localizedDescription)")
+                    completion(needsCheckIn)
+                    return
+                }
+
+                guard let querySnapshot = querySnapshot else {
+                    print("Error getting mood note: querySnapshot was nil")
+                    completion(needsCheckIn)
+                    return
+                }
+
+                if let _ = querySnapshot.documents.first {
+                    // Mood note exists for today
+                    // Set the message to "Take the time to check in your mood..."
+                    needsCheckIn = false
+                } else {
+                    // Mood note does not exist for today
+                    // Set the message to "How are you feeling today?"
+                    needsCheckIn = true
+                }
+
+                completion(needsCheckIn)
+            }
+    }
+
+
+   
+    func saveLikedQuotes(quote: String, author: String) {
+        let db = Firestore.firestore()
+        let userID = Auth.auth().currentUser!.uid
+        
+        db.collection("users").document(userID).collection("liked_quotes").addDocument(data: [
+            "quote": quote,
+            "author": author
+        ]) { error in
+            if let error = error {
+                print("Error saving liked quote: \(error.localizedDescription)")
+            } else {
+                print("Liked quote saved successfully!")
+            }
+        }
+    }
+
+    func deleteLikedQuotes(quote: String, author: String) {
+        let db = Firestore.firestore()
+        let userID = Auth.auth().currentUser!.uid
+        
+        db.collection("users").document(userID).collection("liked_quotes")
+            .whereField("quote", isEqualTo: quote)
+            .whereField("author", isEqualTo: author)
+            .getDocuments { (querySnapshot, error) in
+                if let error = error {
+                    print("Error getting liked quotes: \(error.localizedDescription)")
+                    return
+                }
+                
+                guard let querySnapshot = querySnapshot else {
+                    print("Error getting liked quotes: querySnapshot was nil")
+                    return
+                }
+                
+                if let document = querySnapshot.documents.first {
+                    document.reference.delete { error in
+                        if let error = error {
+                            print("Error deleting liked quote: \(error.localizedDescription)")
+                        } else {
+                            print("Liked quote deleted successfully!")
+                        }
+                    }
+                }
+            }
+    }
+
+    
+    func refreshQuote(manualRefresh: Bool = false, forceRefresh: Bool = false, categories: [String] = ["happiness"]) {
+        let defaults = UserDefaults.standard
+        
+        if !manualRefresh {
+            // Check if it is a new session or if a force refresh is required
+            if defaults.object(forKey: "isFirstLaunch") == nil || forceRefresh {
+                defaults.set(false, forKey: "isFirstLaunch")
+            } else {
+                // Check if the last refresh date is more than 24 hours ago
+                if let lastRefreshDate = defaults.object(forKey: "lastRefreshDate") as? Date,
+                   Date().timeIntervalSince(lastRefreshDate) < 24 * 60 * 60 {
+                    // Don't refresh if it's been less than 24 hours
+                    return
+                }
+            }
+        }
+        
+        isLoading = true
+        
+        // Combine multiple categories into a single string separated by commas
+        let category = categories.joined(separator: ",")
+        
+        let categoryParam = category.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+        let url = URL(string: "https://api.api-ninjas.com/v1/quotes?category=\(categoryParam!)")!
+        var request = URLRequest(url: url)
+        request.setValue("Y7EWfCiqzyU6/NolUw1oDw==5Z3cbFgDOuNvVA3t", forHTTPHeaderField: "X-Api-Key")
+        
+        let task = URLSession.shared.dataTask(with: request) {(data, response, error) in
+            guard let data = data else { return }
+            do {
+                let quoteData = try JSONDecoder().decode([Quote].self, from: data)
+                self.quote = quoteData[0].quote
+                self.author = quoteData[0].author
+                self.isLoading = false
+                print("New quote: \(self.quote)")
+                
+                if !manualRefresh {
+                    // Save the refresh date to UserDefaults
+                    defaults.set(Date(), forKey: "lastRefreshDate")
+                }
+            } catch {
+//                self.showErrorAlert(title: "Error", message: "Could not fetch quote")
+            }
+        }
+        
+        task.resume()
+    }
+
+
+//        func showErrorAlert(title: String, message: String) {
+//            DispatchQueue.main.async {
+//                let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+//                alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
+//                UIApplication.shared.windows.first?.rootViewController?.present(alert, animated: true, completion: nil)
+//            }
+//        }
+    }
+
+
+//struct TabBarView: View {
+//    @Binding var currentTab: Int
+//    @Namespace var namespace
+//
+//    var tabBarOptions: [String] = ["Recent Journal Entry", "Daily Goals"]
+//
+//    var body: some View {
+//        GeometryReader { geometry in
+//            ScrollView(.horizontal, showsIndicators: false) {
+//                HStack(spacing: 20) {
+//                    ForEach(Array(zip(self.tabBarOptions.indices, self.tabBarOptions)), id: \.0, content: {
+//                        index, name in
+//                        TabBarItem(currentTab: self.$currentTab, namespace: namespace.self, tabBarItemName: name, tab: index)
+//                    })
+//                }
+//                .padding(.horizontal)
+//                .frame(width: geometry.size.width)
+//            }
+//            .background(Color.white)
+//            .frame(height: 0)
+//            .alignmentGuide(.leading) { d in
+//                if geometry.size.width > UIScreen.main.bounds.width {
+//                    return d[.leading]
+//                } else {
+//                    return (UIScreen.main.bounds.width - geometry.size.width) / 2
+//                }
+//            }
+//            .alignmentGuide(.trailing) { d in
+//                if geometry.size.width > UIScreen.main.bounds.width {
+//                    return d[.trailing]
+//                } else {
+//                    return -(UIScreen.main.bounds.width - geometry.size.width) / 2
+//                }
+//            }
+//        }
+//    }
+//}
+
+
+//struct TabBarItem: View {
+//    @Binding var currentTab: Int
+//    let namespace: Namespace.ID
+//    var tabBarItemName: String
+//    var tab: Int
+//
+//    var body: some View {
+//        Button {
+//            self.currentTab = tab
+//        } label: {
+//            VStack {
+//                Spacer()
+//                Text(tabBarItemName)
+//                if currentTab == tab {
+//                    Color.black
+//                        .frame(height: 2)
+//                        .matchedGeometryEffect(id: "underline", in: namespace, properties: .frame)
+//                } else {
+//                    Color.gray.opacity(0.3)
+//                        .frame(height: 2)
+//                }
+//            }
+//            .animation(.spring(), value: self.currentTab)
+//        }
+//        .buttonStyle(.plain)
+//    }
+//}
+
+
+
+//struct QuoteView: View {
+//    let quote: String
+//    let author: String
+//    let isLoading: Bool
+//
+//    var body: some View {
+//        VStack {
+//            if isLoading {
+//                ProgressView("Loading...", value: 0.0, total: 1.0)
+//                    .progressViewStyle(CircularProgressViewStyle())
+//            } else {
+//                Text("“" + quote + "”")
+//                    .foregroundColor(.black)
+//                    .padding()
+//                    .multilineTextAlignment(.center)
+//                    .frame(minWidth: 0, maxWidth: .infinity)
+//
+//                Text("By " + author)
+//                    .foregroundColor(.black)
+//                    .padding()
+//                    .multilineTextAlignment(.center)
+//                    .frame(minWidth: 0, maxWidth: .infinity)
+//            }
+//        }
+//    }
+//}
+
+
+//import SwiftUI
+//
+//struct CategoryPickerView: View {
+//    @State private var selectedCategory = "happiness"
+//    let categories = ["happiness", "inspirational", "success", "life", "love", "motivational", "friendship", "positive", "famous"]
+//
+//    var body: some View {
+//        VStack {
+//            Text("Select a category:")
+//                .font(.headline)
+//            Picker("Category", selection: $selectedCategory) {
+//                ForEach(categories, id: \.self) {
+//                    Text($0.capitalized)
+//                }
+//            }
+//            .pickerStyle(MenuPickerStyle())
+//        }
+//    }
+//}
+
+
+
+
+import SwiftUI
+import Firebase
+import FirebaseCore
+import FirebaseAuth
+import UserNotifications
+
+class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        let userDefaults = UserDefaults.standard
+
+        if userDefaults.object(forKey: "lastRefresh") == nil {
+            // Set the last refresh time to the current date and time to indicate a new session
+            let lastRefresh = Date()
+            userDefaults.set(lastRefresh, forKey: "lastRefresh")
+            userDefaults.synchronize()
+        }
+
+        // Configure and request authorization for notifications
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error = error {
+                // Handle error with requesting authorization
+                print("Error requesting authorization for notifications: \(error.localizedDescription)")
+            } else if granted {
+                print("Authorization for notifications granted")
+            } else {
+                print("Authorization for notifications denied")
+            }
+        }
+
+        guard FirebaseApp.configure() != nil else {
+            // Handle error with Firebase configuration
+            return false
+        }
+
+        // Initialize Firebase Auth
+        let auth = Auth.auth()
+
+        // Sign up with email and password
+        auth.createUser(withEmail: "email@example.com", password: "password") { (result, error) in
+            if let error = error {
+                // Handle error with sign-up
+            } else {
+                // User is successfully signed up
+            }
+        }
+
+        // Sign in with email and password
+        auth.signIn(withEmail: "email@example.com", password: "password") { (result, error) in
+            if let error = error {
+                // Handle error with sign-in
+            } else {
+                // User is successfully signed in
+            }
+        }
+
+        return true
+    }
+
+}
+
+@main
+struct loogginApp: App {
+  @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
+    // Add this line to define selectedCategoryString as a State property
+      @State private var selectedCategoryString: String = ""
+  var body: some Scene {
+    WindowGroup {
+        
+        let authentication = Authentication()
+        AuthenticatedView(authentication: authentication, selectedCategoryString: $selectedCategoryString)
+        }
+      }
+    }
+
+
+
+import SwiftUI
+import Firebase
+
+enum Mood: String, CaseIterable {
+    case happy = "😊"
+    case sad = "😢"
+    case angry = "😠"
+    case excited = "🤩"
+    case calm = "😌"
+    case surprised = "😲"
+    case loving = "😍"
+    case tired = "😴"
+    case confused = "😕"
+    case meh = "😒"
+    case other = "Other"
+}
+
+enum Category: Equatable, CaseIterable {
+    case work
+    case relationships
+    case health
+    case other
+    case custom(String)
+
+    static var allCases: [Category] {
+        return [.work, .relationships, .health, .other, .custom("Custom")]
+    }
+}
+
+var categories = Category.allCases.map { category in
+    switch category {
+    case .custom:
+        return ""
+    default:
+        return categoryToString(category)
+    }
+}
+
+func categoryToString(_ category: Category) -> String {
+    switch category {
+    case .work:
+        return "Work"
+    case .relationships:
+        return "Relationships"
+    case .health:
+        return "Health"
+    case .other:
+        return "Other"
+    case .custom(let name):
+        return name
+    }
+}
+
+func categoryFromString(_ string: String) -> Category {
+    if string.lowercased() == "custom" {
+        return .custom(string)
+    } else if let category = Category.allCases.first(where: { categoryToString($0).lowercased() == string.lowercased() }) {
+        return category
+    } else {
+        let customCategory = Category.custom(string)
+        categories.insert(string.lowercased(), at: categories.count - 1)
+        return customCategory
+    }
+}
+
+enum OtherFeeling: String, CaseIterable {
+    case anxious = "Anxious"
+    case bored = "Bored"
+    case confused = "Confused"
+    case depressed = "Depressed"
+    case envious = "Envious"
+}
+
+
+
+//struct MoodCaptureView1: View {
+//    @ObservedObject var moodCaptureViewModel: MoodCaptureViewModel
+//
+//    @State private var selectedCategory = 0
+//    @State private var selectedOtherFeelings = [Int]()
+//    @State private var journalEntry = ""
+//    @State private var trigger = ""
+//    @State private var physicalSymptoms = ""
+//    @State private var copingStrategies = ""
+//    @State private var showOtherFeelings = false
+//    @State private var showCustomMood = false
+//    @State private var customMood = ""
+//    @State private var showCustomCategory = false
+//    @State private var customCategory = ""
+//    @State private var OtherFeelings = ""
+//
+//    @State private var Other = ""
+//    @Binding var selectedMood: String?
+//    @State private var selectedMoodString = ""
+//    @State private var isShowingMoodCapture = false
+//    @Environment(\.presentationMode) var presentationMode
+//    var isDisplayedInTabView: Bool
+//    var onDismiss: (() -> Void)?
+//
+//
+//
+//
+//    let moods = [
+//        ("Happy", "😊"),
+//        ("Sad", "😢"),
+//        ("Angry", "😠"),
+//        ("Excited", "🤩"),
+//        ("Calm", "😌"),
+//        ("Surprised", "😲"),
+//        ("Loving", "😍"),
+//        ("Tired", "😴"),
+//        ("Confused", "😕"),
+//        ("Meh", "😒"),
+//        ("Other", "🤔")
+//    ]
+//
+//    init(moodCaptureViewModel: MoodCaptureViewModel, selectedMood: Binding<String?>, isDisplayedInTabView: Bool = true, onDismiss: (() -> Void)? = nil) {
+//            self.moodCaptureViewModel = moodCaptureViewModel
+//            self._selectedMood = selectedMood
+//            self.isDisplayedInTabView = isDisplayedInTabView
+//            self.onDismiss = onDismiss
+//
+//            let initialSelectedMood = selectedMood.wrappedValue ?? moods[0].0
+//            _selectedMoodString = State(initialValue: moodCaptureViewModel.selectedMood?.rawValue ?? initialSelectedMood)
+//        }
+//
+//
+//
+//
+//    let categories = Category.allCases.map { $0.rawValue }
+//    let otherFeelings = OtherFeeling.allCases.map { $0.rawValue }
+//
+//
+//
+//
+//    var body: some View {
+//        if isDisplayedInTabView {
+//            Form {
+//                Section(header: Text("How are you feeling?")) {
+//                    Picker(selection: $selectedMoodString, label: Text("Mood")) {
+//                        ForEach(moods, id: \.0) { mood in
+//                            Text("\(mood.0) \(mood.1)")
+//                        }
+//                    }
+//                    .onAppear {
+//                        if let selectedMood = moodCaptureViewModel.selectedMood {
+//                            self.selectedMoodString = selectedMood.rawValue
+//                        }
+//                    }
+//                    .onChange(of: selectedMoodString) { moodString in
+//                        if moodString == "Other" {
+//                            showCustomMood = true
+//                        } else {
+//                            showCustomMood = false
+//                            moodCaptureViewModel.selectedMood = moodFromString(moodString)
+//                        }
+//                    }
+//                    if showCustomMood {
+//                        TextField("Enter custom mood", text: $customMood)
+//                            .onChange(of: customMood) { moodString in
+//                                moodCaptureViewModel.selectedMood = moodFromString(moodString)
+//                            }
+//                    }
+//                    Section(header: Text("Do you feel any other way?")) {
+//                        TextEditor(text: $OtherFeelings)
+//                            .onChange(of: OtherFeelings) { newValue in
+//                                moodCaptureViewModel.saveTrigger(newValue)
+//                            }
+//                    }
+//                }
+//                Section(header: Text("What made you feel this way?")) {
+//                    Picker(selection: $selectedCategory, label: Text("Category")) {
+//                        ForEach(0 ..< categories.count) {
+//                            Text(self.categories[$0])
+//                        }
+//                    }
+//                    .onChange(of: selectedCategory) { category in
+//                        if category == categories.count - 1 {
+//                            showCustomCategory = true
+//                        } else {
+//                            showCustomCategory = false
+//                            let selectedCategory = Category.allCases[category]
+//                            moodCaptureViewModel.selectedCategory = selectedCategory
+//                        }
+//                    }
+//                    if showCustomCategory {
+//                        TextField("Enter custom category", text: $customCategory)
+//                            .onChange(of: customCategory) { categoryString in
+//                                moodCaptureViewModel.selectedCategory = categoryFromString(categoryString)
+//                            }
+//                    }
+//                }
+//
+//                Section(header: Text("What trigger those feelings?")) {
+//                    TextEditor(text: $trigger)
+//                        .onChange(of: trigger) { newValue in
+//                            moodCaptureViewModel.saveTrigger(newValue)
+//                        }
+//                }
+//
+//
+//                Section(header: Text("Journal Entry")) {
+//                    TextEditor(text: $journalEntry)
+//                        .onChange(of: journalEntry) { newValue in
+//                            moodCaptureViewModel.saveJournalEntry(newValue)
+//                        }
+//                }
+//
+//
+//            }
+//        .navigationBarTitle("Capture Your Mood")
+//        .navigationBarItems(trailing: saveBtnView())
+//        } else {
+//
+//            NavigationView{
+//                Form {
+//                    Section(header: Text("How are you feeling?")) {
+//                        Picker(selection: $selectedMoodString, label: Text("Mood")) {
+//                            ForEach(moods, id: \.0) { mood in
+//                                Text("\(mood.0) \(mood.1)")
+//                            }
+//                        }
+//                        .onAppear {
+//                            if let selectedMood = moodCaptureViewModel.selectedMood {
+//                                self.selectedMoodString = selectedMood.rawValue
+//                            }
+//                        }
+//                        .onChange(of: selectedMoodString) { moodString in
+//                            if moodString == "Other" {
+//                                showCustomMood = true
+//                            } else {
+//                                showCustomMood = false
+//                                moodCaptureViewModel.selectedMood = moodFromString(moodString)
+//                            }
+//                        }
+//                        if showCustomMood {
+//                            TextField("Enter custom mood", text: $customMood)
+//                                .onChange(of: customMood) { moodString in
+//                                    moodCaptureViewModel.selectedMood = moodFromString(moodString)
+//                                }
+//                        }
+//                        Section(header: Text("Do you feel any other way?")) {
+//                            TextEditor(text: $OtherFeelings)
+//                                .onChange(of: OtherFeelings) { newValue in
+//                                    moodCaptureViewModel.saveTrigger(newValue)
+//                                }
+//                        }
+//                    }
+//                    Section(header: Text("What made you feel this way?")) {
+//                        Picker(selection: $selectedCategory, label: Text("Category")) {
+//                            ForEach(0 ..< categories.count) {
+//                                Text(self.categories[$0])
+//                            }
+//                        }
+//                        .onChange(of: selectedCategory) { category in
+//                            if category == categories.count - 1 {
+//                                showCustomCategory = true
+//                            } else {
+//                                showCustomCategory = false
+//                                let selectedCategory = Category.allCases[category]
+//                                moodCaptureViewModel.selectedCategory = selectedCategory
+//                            }
+//                        }
+//                        if showCustomCategory {
+//                            TextField("Enter custom category", text: $customCategory)
+//                                .onChange(of: customCategory) { categoryString in
+//                                    moodCaptureViewModel.selectedCategory = categoryFromString(categoryString)
+//                                }
+//                        }
+//                    }
+//
+//                    Section(header: Text("What trigger those feelings?")) {
+//                        TextEditor(text: $trigger)
+//                            .onChange(of: trigger) { newValue in
+//                                moodCaptureViewModel.saveTrigger(newValue)
+//                            }
+//                    }
+//
+//
+//                    Section(header: Text("Journal Entry")) {
+//                        TextEditor(text: $journalEntry)
+//                            .onChange(of: journalEntry) { newValue in
+//                                moodCaptureViewModel.saveJournalEntry(newValue)
+//                            }
+//                    }
+//
+//
+//                }
+//                .navigationBarTitle("Capture Your Mood")
+//                .navigationBarItems(leading: closeBtnView(), trailing: saveBtnView())
+//
+//            }
+//        }
+//    }
+//
+//    func closeBtnView() -> some View {
+//        Button(action: {
+//            print("Close button tapped")
+//            self.presentationMode.wrappedValue.dismiss()
+//            self.onDismiss?()
+//       }) {
+//            Text("Cancel")
+//        }
+//    }
+//
+//    func saveBtnView() -> some View {
+//        Button(action: {
+//            let moodData: [String: Any] = [
+//                "mood": selectedMoodString,
+//                "journalEntry": journalEntry,
+//                "trigger": trigger,
+////                "physicalSymptoms": physicalSymptoms,
+//                "Other": Other,
+////                "copingStrategies": copingStrategies,
+//                "date": Timestamp(date: Date())
+//            ]
+//
+//            moodCaptureViewModel.saveMood(data: moodData)
+//            self.presentationMode.wrappedValue.dismiss()
+//            self.onDismiss?()
+//
+//        }) {
+//            Text("Save")
+//                .font(.system(size: 17))
+//        }
+//    }
+//
+//
+//    func moodFromString(_ moodString: String) -> Mood {
+//        if let mood = Mood(rawValue: moodString) {
+//            return mood
+//        } else {
+//            return .other
+//        }
+//    }
+//    func categoryFromString(_ string: String) -> Category {
+//        if string.lowercased() == "custom" {
+//            return .custom(string)
+//        } else if let category = Category.allCases.first(where: { categoryToString($0).lowercased() == string.lowercased() }) {
+//            return category
+//        } else {
+//            let customCategory = Category.custom(string)
+//            categories.insert(string.lowercased(), at: categories.count - 1)
+//            return customCategory
+//        }
+//    }
+//}
+    
+
+
+    
+
+    
+
+
+class MoodCaptureViewModel: ObservableObject {
+    @Published var selectedMood: Mood? = nil
+    @Published var mood: Mood? = nil
+    @Published var selectedCategory: Category? = nil
+    @Published var selectedOtherFeelings = [OtherFeeling]()
+    @Published var journalEntry = ""
+    @Published var trigger = ""
+    @Published var physicalSymptoms = ""
+    @Published var copingStrategies = ""
+    @Published var selectedMoodString = ""
+    @Published var userID = ""
+    @Published var Other = ""
+    @State private var isShowingMoodCapture = false
+    let defaultCategory: Category = .work
+    @State private var isCustomCategory = false
+
+
+    init() {
+        self.mood = .happy
+        self.selectedCategory = .work
+    }
+
+    func saveMood(data: [String: Any]) {
+        guard let selectedMoodString = data["mood"] as? String,
+              let selectedMood = mood else {
+            print("Error saving mood: selected mood is nil")
+            return
+        }
+        
+        let db = Firestore.firestore()
+        
+        if let userID = Auth.auth().currentUser?.uid {
+            let selectedOtherFeelingStrings = selectedOtherFeelings.map { $0.rawValue }
+            
+            // Call saveTrigger function to update trigger value
+            saveTrigger(trigger)
+            
+            var documentData = [
+                "mood": selectedMoodString,
+                "from": "Mood",
+                "userID": userID,
+                "otherFeelings": selectedOtherFeelingStrings,
+                "isCustomCategory": isCustomCategory,
+            ] as [String : Any]
+
+            if let selectedCategory = selectedCategory {
+                switch selectedCategory {
+                case .custom(let categoryString):
+                    documentData["category"] = categoryString
+                    isCustomCategory = true
+                default:
+                    documentData["category"] = categoryToString(selectedCategory)
+                    isCustomCategory = false
+                }
+            } else {
+                documentData["category"] = categoryToString(defaultCategory)
+                isCustomCategory = false
+            }
+
+            for (key, value) in data {
+                documentData[key] = value
+            }
+            
+            db.collection("users").document(userID).collection("notes").addDocument(data: documentData) { error in
+                if let error = error {
+                    print("Error saving mood: \(error.localizedDescription)")
+                } else {
+                    print("Mood saved successfully!")
+                    print("Trigger value saved: \(self.trigger)")
+                }
+            }
+        }
+    }
+    
+    func selectCategory(_ category: Category) {
+        self.selectedCategory = category
+    }
+
+
+
+    func saveTrigger(_ value: String) {
+        trigger = value
+    }
+
+    
+
+    func savePhysicalSymptoms(_ value: String) {
+        self.physicalSymptoms = value
+    }
+
+    func saveCopingStrategies(_ value: String) {
+        self.copingStrategies = value
+    }
+
+    func saveJournalEntry(_ value: String) {
+        self.journalEntry = value
+    }
+}
+
+
+
+
+
+
+
+struct MultiSelectionTick: View {
+    let isSelected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: self.action) {
+            Image(systemName: self.isSelected ? "checkmark.circle" : "circle")
+        }
+    }
+}
+
+
+
+
+struct MoodSelectorView: View {
+    @Binding var selectedMood: String?
+    @Binding var selectedCategoryString: String
+    @State private var isPresentingSheet = false
+    let authentication = Authentication()
+    
+    var moods = [
+        ("Happy", "😊"),
+        ("Sad", "😢"),
+        ("Angry", "😠"),
+        ("Excited", "🤩"),
+        ("Calm", "😌"),
+        ("Surprised", "😲"),
+        ("Loving", "😍"),
+        ("Tired", "😴"),
+        ("Confused", "😕"),
+        ("Meh", "😒"),
+        ("Other", "🤔")
+    ]
+    
+    var gridItemLayout = Array(repeating: GridItem(.flexible(), spacing: 20), count: 3)
+    let maxVisibleItems = 5
+    
+    @State private var showAllItems = false
+    
+//    var colors: [Color] = [.yellow, .purple, .green]
+    
+    var body: some View {
+        var sortedMoods = moods.sorted(by: { mood1, mood2 in
+            // Sort based on the number of times the mood has been selected by the user
+            let count1 = UserDefaults.standard.integer(forKey: "selected_\(mood1.0)_count")
+            let count2 = UserDefaults.standard.integer(forKey: "selected_\(mood2.0)_count")
+            return count1 > count2
+        })
+        
+        LazyVGrid(columns: gridItemLayout, spacing: 18) {
+                    ForEach(sortedMoods.prefix(showAllItems ? sortedMoods.count : maxVisibleItems), id: \.0) { mood in
+                        VStack {
+                            ZStack {
+                                RectangleStyle(isSelected: mood.0 == selectedMood)
+                                VStack {
+                                    Spacer()
+
+                                    ZStack {
+
+                                        Circle()
+                                            .fill(Color.clear)
+                                            .padding(-10)
+                                            .frame(width: 60, height: 60) // Match the size of the filled circle
+                                        Text(mood.1)
+                                            .font(.system(size: 40)) // Adjust font size if necessary
+                                    }
+                                    Text(mood.0.capitalized)
+                                        .font(.footnote)
+                                        .foregroundColor(.primary)
+                                }
+                            }
+                        }
+                .onTapGesture {
+                    selectedMood = mood.0
+                    isPresentingSheet = true
+                    
+                    // Increment the count for the selected mood
+                    let count = UserDefaults.standard.integer(forKey: "selected_\(mood.0)_count")
+                    UserDefaults.standard.set(count + 1, forKey: "selected_\(mood.0)_count")
+                }
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 30)
+            }
+            
+            if sortedMoods.count > maxVisibleItems {
+                Button(action: {
+                    showAllItems.toggle()
+                }) {
+                    Text(showAllItems ? "Less" : "More")
+                }
+                .background(
+                    RectangleStyle(isSelected: false)
+                )
+                
+            }
+        }
+        .padding()
+        .fullScreenCover(isPresented: $isPresentingSheet, onDismiss: {
+            selectedMood = nil
+        }) {
+            MoodCaptureView(moodCaptureViewModel: MoodCaptureViewModel(), selectedMood: $selectedMood,selectedCategoryString: $selectedCategoryString, isDisplayedInTabView: false)
+        }
+        .onAppear {
+            // Execute the sorting logic here
+            sortedMoods.sort(by: { mood1, mood2 in
+                let count1 = UserDefaults.standard.integer(forKey: "selected_\(mood1.0)_count")
+                let count2 = UserDefaults.standard.integer(forKey: "selected_\(mood2.0)_count")
+                return count1 > count2
+            })
+        }
+    }
+}
+
+
+struct RectangleStyle: View {
+    let isSelected: Bool
+
+    var body: some View {
+        VStack {
+            Spacer()
+            ZStack {
+                Circle()
+                    .fill(Color("shoeBG2"))
+                    .frame(width: 60, height: 60) // Adjust the size of the filled circle
+                    .padding(-10)
+                // White Inner Circle...
+                Circle()
+                    .stroke(Color.white, lineWidth: 1.4)
+                    .frame(width: 50, height: 50) // Adjust the size of the stroked circle
+                    .padding(-3)
+            }
+            Spacer()
+        }
+        .frame(minWidth: 120, maxWidth: .infinity, minHeight: 100, maxHeight: .infinity) // Updated frame size
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.gray.opacity(0.4), lineWidth: 1)
+        )
+    }
+}
+
+
+
+
+
+
+
+
+struct MoodCaptureView: View {
+    @ObservedObject var moodCaptureViewModel: MoodCaptureViewModel
+    
+    @State private var selectedOtherFeelings = [Int]()
+    @State private var journalEntry = ""
+    @State private var trigger = ""
+    @State private var physicalSymptoms = ""
+    @State private var copingStrategies = ""
+    @State private var showOtherFeelings = false
+    @State private var showCustomMood = false
+    @State private var customMood = ""
+    @State private var showCustomCategory = false
+    @State private var customCategory = ""
+    @State private var OtherFeelings = ""
+    @Binding var selectedCategoryString: String
+    let selectedCategory: Category? = nil
+    let defaultCategory: Category = .work
+
+    @State private var Other = ""
+    @Binding var selectedMood: String?
+    @State private var selectedMoodString = ""
+    @State private var isShowingMoodCapture = false
+    @Environment(\.presentationMode) var presentationMode
+    var isDisplayedInTabView: Bool
+    var onDismiss: (() -> Void)?
+
+    @State private var selectedCategoryIndex: Int = 0
+        @State private var categories = Category.allCases.map { category in
+            switch category {
+            case .custom:
+                return ""
+            default:
+                return categoryToString(category)
+            }
+        }
+    
+    
+    let moods = [
+        ("Happy", "😊"),
+        ("Sad", "😢"),
+        ("Angry", "😠"),
+        ("Excited", "🤩"),
+        ("Calm", "😌"),
+        ("Surprised", "😲"),
+        ("Loving", "😍"),
+        ("Tired", "😴"),
+        ("Confused", "😕"),
+        ("Meh", "😒"),
+        ("Other", "🤔")
+    ]
+    
+    init(moodCaptureViewModel: MoodCaptureViewModel, selectedMood: Binding<String?>, selectedCategoryString: Binding<String>, isDisplayedInTabView: Bool = true, onDismiss: (() -> Void)? = nil) {
+        self.moodCaptureViewModel = moodCaptureViewModel
+        self._selectedMood = selectedMood
+        self._selectedCategoryString = selectedCategoryString // Add this line to initialize the property
+        self.isDisplayedInTabView = isDisplayedInTabView
+        self.onDismiss = onDismiss
+
+        let initialSelectedMood = selectedMood.wrappedValue ?? moods[0].0
+        _selectedMoodString = State(initialValue: moodCaptureViewModel.selectedMood?.rawValue ?? initialSelectedMood)
+    }
+
+
+    
+    
+    
+    let otherFeelings = OtherFeeling.allCases.map { $0.rawValue }
+    
+    
+    
+    
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading) {            VStack(alignment: .leading, spacing: 10) {
+                Text("Capture Your Mood")
+                    .ubuntu(28, .light)
+                    .foregroundColor(.white)
+                    .padding(.vertical,15)
+                
+                TitleView("How are you feeling?")
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(moods, id: \.0) { mood in
+                                Button(action: {
+                                    selectedMood = mood.0
+                                }) {
+                                    VStack(spacing: 4) {
+                                        Text(mood.1)
+                                            .font(.largeTitle)
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 8)
+                                            .foregroundColor(selectedMood == mood.0 ? .white : .primary)
+                                            .background(selectedMood == mood.0 ? Color.blue : Color.gray.opacity(0.2))
+                                            .clipShape(Circle())
+                                        Text(mood.0)
+                                            .font(.footnote)
+                                            .foregroundColor(.primary)
+                                    }
+                                }
+                            }
+
+                        Button(action: {
+                            showCustomMood = true
+                        }) {
+                            Text("Other")
+                        }
+                        .sheet(isPresented: $showCustomMood, content: {
+                            VStack {
+                                TextField("Custom mood", text: $customMood)
+                                Button(action: {
+                                    selectedMood = customMood
+                                    showCustomMood = false
+                                }) {
+                                    Text("Save")
+                                }
+                            }
+                            .padding()
+                        })
+                    }
+                }
+                .onAppear {
+                    if let selectedMood = moodCaptureViewModel.selectedMood {
+                        self.selectedMoodString = selectedMood.rawValue
+                    }
+                }
+                .onChange(of: selectedMoodString) { moodString in
+                    if moodString == "Other" {
+                        showCustomMood = true
+                    } else {
+                        showCustomMood = false
+                        moodCaptureViewModel.selectedMood = moodFromString(moodString)
+                    }
+                }
+                if showCustomMood {
+                    TextField("Enter custom mood", text: $customMood)
+                    Rectangle()
+                        .fill(.white.opacity(0.7))
+                        .frame(height: 1)
+                        .onChange(of: customMood) { moodString in
+                            moodCaptureViewModel.selectedMood = moodFromString(moodString)
+                        }
+                }
+                
+                TitleView("Do you feel any other way?")
+                TextField("Enter any other way", text: $OtherFeelings)
+                    .ubuntu(16, .regular)
+                    .tint(.white)
+                    .padding(.top,2)
+                    .onChange(of: OtherFeelings) { newValue in
+                        moodCaptureViewModel.saveTrigger(newValue)
+                    }
+                
+                Rectangle()
+                    .fill(.white.opacity(0.7))
+                    .frame(height: 1)
+                
+                MoodRegistrationView(selectedCategoryString: $selectedCategoryString)
+
+            }
+            .environment(\.colorScheme, .dark)
+            .padding(15)
+            .background(CustomColor.myColor1)
+                
+                VStack(alignment: .leading, spacing: 10) {
+                    
+                    
+                    TitleView("What trigger those feelings?",.gray)
+                    TextField("About Your triggers", text: $trigger)
+                        .ubuntu(16, .regular)
+                        .padding(.top,2)
+                    
+                    Rectangle()
+                        .fill(.black.opacity(0.2))
+                        .frame(height: 1)
+                        .onChange(of: trigger) { newValue in
+                            moodCaptureViewModel.saveTrigger(newValue)
+                        }
+                    
+                    TitleView("Journal Entry",.gray)
+                    TextField("Free your mind", text: $journalEntry)
+                        .ubuntu(16, .regular)
+                        .padding(.top,2)
+                    Rectangle()
+                        .fill(.black.opacity(0.2))
+                        .frame(height: 1)
+                        .onChange(of: journalEntry) { newValue in
+                            moodCaptureViewModel.saveJournalEntry(newValue)
+                        }
+                    
+                    Spacer()
+                    
+                }
+                .padding(15)
+                .navigationBarItems(leading: closeBtnView(), trailing: saveBtnView())
+                
+            }
+        }
+    }
+
+    
+    func closeBtnView() -> some View {
+        Button(action: {
+            print("Close button tapped")
+            self.presentationMode.wrappedValue.dismiss()
+            self.onDismiss?()
+       }) {
+            Text("Cancel")
+        }
+    }
+    func TitleView(_ value: String,_ color: Color = .white.opacity(0.7))->some View{
+        Text(value)
+            .ubuntu(12, .regular)
+            .foregroundColor(color)
+    }
+    
+    func saveBtnView() -> some View {
+        Button(action: {
+            let moodData: [String: Any] = [
+                "mood": selectedMoodString,
+                "category": selectedCategoryString.isEmpty ? selectedCategory : selectedCategoryString,
+                "journalEntry": journalEntry,
+                "trigger": trigger,
+                "Other": Other,
+                "date": Timestamp(date: Date())
+            ]
+
+            moodCaptureViewModel.saveMood(data: moodData)
+            self.presentationMode.wrappedValue.dismiss()
+            self.onDismiss?()
+
+        }) {
+            Text("Save")
+                .font(.system(size: 17))
+        }
+    }
+
+    func moodFromString(_ moodString: String) -> Mood {
+        if let mood = Mood(rawValue: moodString) {
+            return mood
+        } else {
+            return .other
+        }
+    }
+    func categoryFromString(_ string: String) -> Category {
+        if string.lowercased() == "custom" {
+            return .custom(string)
+        } else if let category = Category.allCases.first(where: { categoryToString($0).lowercased() == string.lowercased() }) {
+            return category
+        } else {
+            let customCategory = Category.custom(string)
+            categories.insert(string.lowercased(), at: categories.count - 1)
+            return customCategory
+        }
+    }
+}
+
+
+struct CategoryView: View {
+    @State private var selectedCategory: String = ""
+    @State private var selectedCategoryIndex: Int = 0
+    @State private var categories: [String] = ["Work", "Life", "Relationship"]
+
+
+    @State private var showCustomCategory: Bool = false
+    @State private var customCategory: String = ""
+
+    var body: some View {
+        VStack {
+            TitleView("What made you feel this way?")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    Button(action: {
+                        showCustomCategory = true
+                    }) {
+                        Image(systemName: "plus.circle")
+                    }
+                    ForEach(0..<categories.count) { index in
+                        CategoryCapsule(title: categories[index], isSelected: selectedCategoryIndex == index) {
+                            selectedCategoryIndex = index
+                            if index == categories.count - 0 {
+                                showCustomCategory = true
+                            } else {
+                                showCustomCategory = false
+                                let selectedCategory = Category.allCases[index]
+//                                moodCaptureViewModel.selectedCategory = selectedCategory
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal)
+
+            // Rest of the code here...
+
+            if showCustomCategory {
+                TextField("Enter custom category", text: self.$customCategory, onCommit: {
+                    self.categories.append(self.customCategory)
+                    self.selectedCategory = self.customCategory
+                        showCustomCategory = false
+                })
+                Rectangle()
+                    .fill(.white.opacity(0.7))
+                    .frame(height: 1)
+            }
+        }
+    }
+
+    func TitleView(_ value: String,_ color: Color = .white.opacity(0.7))->some View{
+        Text(value)
+            .ubuntu(12, .regular)
+            .foregroundColor(color)
+    }
+
+    func categoryFromString(_ string: String) -> Category {
+        if string.lowercased() == "custom" {
+            return .custom(string)
+        } else if let category = Category.allCases.first(where: { categoryToString($0).lowercased() == string.lowercased() }) {
+            return category
+        } else {
+            let customCategory = Category.custom(string)
+            categories.insert(string.lowercased(), at: categories.count - 1)
+            return customCategory
+        }
+    }
+}
+
+struct CategoryCapsule: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .foregroundColor(isSelected ? .white : .primary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(isSelected ? Color.blue : Color.gray.opacity(0.2))
+                .clipShape(Capsule())
+        }
+    }
+}
+
+
+
+
+struct MoodRegistrationView: View {
+    @State private var selectedCategory: String = ""
+    @Binding var selectedCategoryString: String
+    @State private var customCategory: String = ""
+    @State private var showCustomCategory: Bool = false
+    @State private var categories: [String] = []
+    @State var showingError = false
+    @State var errorString = ""
+
+    @State private var showDeleteButtons: Bool = false
+    @State private var showDeleteAlert: Bool = false
+    @State private var categoryToDelete: String?
+
+    let customCategoriesRef = Firestore.firestore().collection("users").document(Auth.auth().currentUser?.uid ?? "").collection("customCategories")
+
+    var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                TitleView("How are you feeling?")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack {
+                        Button(action: {
+                            // Toggle text field for entering custom category
+                            showCustomCategory.toggle()
+                            
+                            // Reset the customCategory
+                            if showCustomCategory {
+                                customCategory = ""
+                            }
+                        }) {
+                            Image(systemName: showCustomCategory ? "minus.circle" : "plus.circle")
+                                .font(.headline)
+                                .foregroundColor(.blue)
+                        }
+                    ForEach(categories, id: \.self) { category in
+                        ZStack(alignment: .leading) {
+                            Button(action: {
+                                self.selectedCategory = category
+                                self.selectedCategoryString = category
+                            }) {
+                                Text(category)
+                                    .font(.headline)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(self.selectedCategory == category ? Color.blue : Color.gray)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
+                            }
+                            if showDeleteButtons {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                                    .padding(.leading, -10)
+                                    .onTapGesture {
+                                        self.categoryToDelete = category
+                                        self.showDeleteAlert = true
+                                    }
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .gesture(LongPressGesture(minimumDuration: 1).onEnded { _ in
+                            showDeleteButtons = true
+                        })
+                        // Delete custom category
+                        .contextMenu {
+                                                    Button("Delete") {
+                                                        // Deleting the custom category
+                                                        categories.remove(at: getIndex(category: category))
+                                                        
+                                                        // Remove category from the database
+                                                        deleteCategory(category: category)
+                                                    }
+                        }
+                    }
+                }
+            }
+        .alert(isPresented: $showDeleteAlert) {
+            Alert(title: Text("Delete Category"),
+                  message: Text("Are you sure you want to delete this category?"),
+                  primaryButton: .destructive(Text("Delete")) {
+                    if let category = categoryToDelete {
+                        deleteCategory(category: category)
+                    }
+                  },
+                  secondaryButton: .cancel())
+        }
+            
+            if showCustomCategory {
+                TextField("Enter custom category", text: self.$customCategory, onCommit: {
+                    let inputCategory = self.customCategory
+                    showCustomCategory = false
+
+                    if !inputCategory.isEmpty {
+                        // Check for duplicate category
+                        if self.categories.contains(inputCategory) {
+                            showingError = true
+                            errorString = "Category can't be a duplicate"
+                        } else {
+                            showingError = false
+                            // Add custom category to the list of categories
+                            // Add custom category to the list of categories
+                                self.categories.append(inputCategory)
+                                self.updateSelectedCategoryString(to: inputCategory)
+                                // Save custom category to Firebase
+                                customCategoriesRef.addDocument(data: ["name": inputCategory])
+                        }
+                        self.customCategory = ""
+                    } else {
+                        showingError = true
+                        errorString = "Tag can't be empty"
+                    }
+                })
+                Rectangle()
+                    .fill(.white.opacity(0.7))
+                    .frame(height: 1)
+            }
+            ErrorMessage(showingError: $showingError, errorString: $errorString)
+        }
+        .onAppear {
+            // Fetch categories from database
+            let db = Firestore.firestore()
+            let userID = Auth.auth().currentUser?.uid
+            if let userID = userID {
+                db.collection("users").document(userID).collection("customCategories").getDocuments { querySnapshot, error in
+                    if let error = error {
+                        print("Error getting documents: \(error)")
+                    } else {
+                        self.categories = querySnapshot!.documents.map { document in
+                            document.data()["name"] as? String ?? ""
+                        }
+                    }
+                }
+            }
+        }
+        .onChange(of: showingError, perform: { value in
+            if value {
+                // Hide the error message after a delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    showingError = false
+                }
+            }
+        })
+    }
+    
+    func getIndex(category: String) -> Int {
+            let index = categories.firstIndex { currentCategory in
+                return category == currentCategory
+            } ?? 0
+            
+            return index
+        }
+    
+    func deleteCategory(category: String) {
+            // Delete category from Firebase
+            customCategoriesRef.whereField("name", isEqualTo: category).getDocuments { (querySnapshot, error) in
+                if let error = error {
+                    print("Error getting documents: \(error)")
+                } else {
+                    for document in querySnapshot!.documents {
+                        document.reference.delete()
+                    }
+                }
+            }
+        }
+    private func updateSelectedCategoryString(to category: String) {
+            self.selectedCategory = category
+            self.selectedCategoryString = category
+        }
+    
+//    func saveSelectedCategory(_ category: String) {
+//        let db = Firestore.firestore()
+//        let userID = Auth.auth().currentUser?.uid
+//
+//        if let userID = userID {
+//            db.collection("users").document(userID).setData(["category": category], merge: true) { error in
+//                if let error = error {
+//                    print("Error saving category: \(error)")
+//                } else {
+//                    print("Category saved successfully!")
+//                }
+//            }
+//        }
+//    }
+
+    
+    func TitleView(_ value: String,_ color: Color = .white.opacity(0.7))->some View{
+        Text(value)
+            .ubuntu(12, .regular)
+            .foregroundColor(color)
+    }
+}
+
+
+
+/// A subview that displays a message when an error occurs
+struct ErrorMessage: View {
+    @Binding var showingError: Bool
+    @Binding var errorString: String
+    
+    var body: some View {
+        HStack {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            Text(errorString)
+                .foregroundColor(.secondary)
+                .padding(.leading, -6)
+        }
+        .font(.caption)
+        .opacity(showingError ? 1 : 0)
+        .animation(.easeIn(duration: 0.3))
+    }
+}
+
+
+//  ContentView.swift
+//  Notes V.2
+//
+//  Created by Kavsoft on 29/02/20.
+//  Copyright © 2020 Kavsoft. All rights reserved.
+//
+
+import Firebase
+import SwiftUI
+import CoreGraphics
+
+struct Home: View {
+    @State private var showFormSelector = false
+    @State private var isDisplayedInTabView = true
+    @State private var showNoteView = false
+    @State private var notes = [Note]()
+    let userID = Auth.auth().currentUser?.uid
+    let db = Firestore.firestore()
+    @State private var selectedNote: Note?
+    @State private var searchTerm = ""
+    @ObservedObject var authentication: Authentication = Authentication()
+    @State private var searchText = ""
+    @Binding var selectedMood: String?
+    @State private var gratitudeNotes = [Note]()
+    @Binding var selectedCategoryString: String
+
+
+    private let dateFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            return formatter
+        }()
+    
+    private let moodDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter
+    }()
+
+    
+    init(isDisplayedInTabView: Bool, selectedMood: Binding<String?>, selectedCategoryString: Binding<String>) {
+        self._isDisplayedInTabView = State(initialValue: isDisplayedInTabView)
+        self._selectedCategoryString = selectedCategoryString // Move this line before the usage of 'selectedCategoryString'
+        self._selectedMood = selectedMood
+    }
+    
+
+    
+    var body: some View {
+        if isDisplayedInTabView {
+            ZStack{
+                List {
+                    //searchBarView()
+                    ForEach(notes.prefix(3), id: \.id) { note in
+                        NavigationLink(destination: NoteView(note: note, userID: userID!)) {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    if note.from == "Mood" {
+                                        Text("\(note.mood)")
+                                    } else {
+                                        Text("\(note.trigger)")
+                                            .lineLimit(1)
+                                        
+                                    }
+                                    Text("\(note.timestamp.dateValue(), formatter: dateFormatter)")
+                                        .font(.subheadline)
+                                        .foregroundColor(.gray)
+                                        .multilineTextAlignment(.trailing)
+                                    
+                                    if note.from == "Mood" {
+                                        Text("\(note.category)")
+                                            .font(.subheadline).foregroundColor(.gray)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                    } else {
+                                        Text("\(note.from)")
+                                            .font(.subheadline).foregroundColor(.gray)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                    }
+                                }
+                                Spacer()
+                                //                                if note.from == "Mood" {
+                                //                                    Text("\(note.category)")
+                                //                                        .font(.subheadline).foregroundColor(.gray)
+                                //                                        .lineLimit(1)
+                                //                                        .truncationMode(.tail)
+                                //                                } else {
+                                //                                    Text("\(note.from)")
+                                //                                        .font(.subheadline).foregroundColor(.gray)
+                                //                                        .lineLimit(1)
+                                //                                        .truncationMode(.tail)
+                                //                                }
+                            }
+                        }
+                    }
+                    .onDelete { indices in
+                        indices.forEach { index in
+                            let note = self.notes[index]
+                            self.deleteNote(note)
+                        }
+                    }
+                    Spacer()
+                    
+                }
+                
+                .onAppear {
+                    self.fetchNotes()
+                }
+            }
+            .padding(.top, 30)
+            .listStyle(PlainListStyle())
+            .scrollContentBackground(.hidden)
+            .background(Color.white)
+            .onAppear {
+                UITableView.appearance().showsVerticalScrollIndicator = false
+            }
+        } else {
+            NavigationView {
+                ZStack {
+                    
+                    VStack {
+                        
+                        HStack {
+                            Text("My Journal")
+                                .font(.system(size: 40, weight: .black))
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                // show new task view
+                                self.showFormSelector = true
+                            }) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        .padding()
+                        Spacer()
+                        SearchBar(text: $searchTerm)
+                            .padding()
+                        List {
+                            //searchBarView()
+                            ForEach(notes.filter {
+                                                self.searchTerm.isEmpty ? true : $0.from.lowercased().contains(self.searchTerm.lowercased()) || $0.trigger.lowercased().contains(self.searchTerm.lowercased()) || $0.mood.lowercased().contains(self.searchTerm.lowercased()) || $0.category.lowercased().contains(self.searchTerm.lowercased())
+                                            }, id: \.id) { note in
+                                                NavigationLink(destination: NoteView(note: note, userID: userID!)) {
+                                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            if note.from == "Mood" {
+                                                Text("\(note.mood)")
+                                            } else {
+                                                Text("\(note.trigger)")
+                                                    .lineLimit(1)
+                                                
+                                            }
+                                            
+                                            if note.from == "Mood" {
+                                                Text("\(note.timestamp.dateValue(), formatter: dateFormatter)")
+                                                    .font(.subheadline)
+                                                    .foregroundColor(.gray)
+                                                    .multilineTextAlignment(.trailing)
+                                            } else {
+                                                Text("\(note.timestamp.dateValue(), formatter: dateFormatter)")
+                                                    .font(.subheadline)
+                                                    .foregroundColor(.gray)
+                                                    .multilineTextAlignment(.trailing)
+                                                
+                                            }
+                                            
+                                            if note.from == "Mood" {
+                                                Text("\(note.category)")
+                                                    .font(.subheadline).foregroundColor(.gray)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
+                                            } else {
+                                                Text("\(note.from)")
+                                                    .font(.subheadline).foregroundColor(.gray)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
+                                            }
+                                        }
+                                        Spacer()
+                                        //                                if note.from == "Mood" {
+                                        //                                    Text("\(note.category)")
+                                        //                                        .font(.subheadline).foregroundColor(.gray)
+                                        //                                        .lineLimit(1)
+                                        //                                        .truncationMode(.tail)
+                                        //                                } else {
+                                        //                                    Text("\(note.from)")
+                                        //                                        .font(.subheadline).foregroundColor(.gray)
+                                        //                                        .lineLimit(1)
+                                        //                                        .truncationMode(.tail)
+                                    }
+                                    
+                                }
+                            }
+                            .onDelete { indices in
+                                indices.forEach { index in
+                                    let note = self.notes[index]
+                                    self.deleteNote(note)
+                                }
+                            }
+                            
+                        }.onAppear {
+                            self.fetchNotes()
+                        }
+                        
+                        //                        newBtnView().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        
+                    }
+                }
+                .padding()
+                .listStyle(PlainListStyle())
+                .scrollContentBackground(.hidden)
+                .background(Color.white)
+                //                    .navigationBarTitle("My Journal")
+            }.sheet(isPresented: $showFormSelector) {
+                FormSelector(selectedMood: $selectedMood,selectedCategoryString: $selectedCategoryString, isPresented: self.$showFormSelector,
+                             db: self.db,
+                             userID: self.userID,
+                             authentication: self.authentication
+                )
+            }
+        }
+    }
+    
+    func noDataView() -> some View {
+        VStack(alignment: .center, spacing: 20) {
+            Image(systemName:"exclamationmark.square")
+                .resizable ()
+                .scaledToFit ()
+                . frame (width: 240)
+            Text("Add your first journal entry")
+                .font(.system(size: 17))
+                .bold ()
+                .foregroundColor(.gray)
+        }
+    }
+    
+    func newBtnView() -> some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                Button(action: { self.showFormSelector = true }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 38))
+                        .foregroundColor(.blue)
+                }
+            }
+        }
+        .padding(.bottom, 32)
+        .padding(.trailing, 32)
+    }
+    
+    func searchBarView() -> some View {
+        TextField("搜索内容", text: $searchText)
+            .padding(7)
+            .padding(.horizontal, 25)
+            .background(Color(.systemGray6))
+            .cornerRadius(8)
+            .overlay(
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.gray)
+                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 8)
+
+                    // 编辑时显示清除按钮
+                    if searchText != "" {
+                        Button(action: {
+                            self.searchText = ""
+                        }) {
+                            Image(systemName: "multiply.circle.fill")
+                                .foregroundColor(.gray)
+                                .padding(.trailing, 8)
+                        }
+                    }
+                }
+            )
+            .padding(.horizontal, 10)
+    }
+    
+    private func fetchNotes() {
+        if let userID = Auth.auth().currentUser?.uid {
+            let notesRef = Firestore.firestore().collection("users").document(userID).collection("notes")
+            notesRef.addSnapshotListener { (querySnapshot, error) in
+                guard let documents = querySnapshot?.documents else {
+                    print("No documents")
+                    return
+                }
+
+                self.notes = documents.map { (queryDocumentSnapshot) -> Note in
+                    let data = queryDocumentSnapshot.data()
+                    let id = queryDocumentSnapshot.documentID
+
+                    let userID = data["userID"] as? String ?? ""
+                    let from = data["from"] as? String ?? ""
+                    let trigger = data["trigger"] as? String ?? ""
+                    let physicalSymptoms = data["physicalSymptoms"] as? String ?? ""
+                    let emotionalSymptoms = data["emotionalSymptoms"] as? String ?? ""
+                    let thoughts = data["thoughts"] as? String ?? ""
+                    let copingStrategies = data["copingStrategies"] as? String ?? ""
+                    let outcome = data["outcome"] as? String ?? ""
+                    let reflections = data["reflections"] as? String ?? ""
+                    let obsession = data["obsession"] as? String ?? ""
+                    let compulsion = data["compulsion"] as? String ?? ""
+                    let difficultyLevel = data["difficultyLevel"] as? Int ?? 0
+                    let anxietyLevel = data["anxietyLevel"] as? Int ?? 0
+                    let thoughtsFeelings = data["thoughtsFeelings"] as? String ?? ""
+                    let additionalDetails = data["additionalDetails"] as? String ?? ""
+                    let timestamp = data["date"] as? Timestamp ?? Timestamp(date: Date())
+                    
+                    let mood = data["mood"] as? String ?? ""
+                    let category = data["category"] as? String ?? ""
+                    let otherFeelings = data["otherFeelings"] as? [String] ?? []
+                    let journalEntry = data["journalEntry"] as? String ?? ""
+
+                    return Note(id: id, userID: userID, from: from, trigger: trigger, physicalSymptoms: physicalSymptoms, emotionalSymptoms: emotionalSymptoms, thoughts: thoughts, copingStrategies: copingStrategies, outcome: outcome, reflections: reflections, obsession: obsession, compulsion: compulsion, difficultyLevel: difficultyLevel, anxietyLevel: anxietyLevel, thoughtsFeelings: thoughtsFeelings, additionalDetails: additionalDetails, timestamp: timestamp, mood: mood, category: category, otherFeelings: otherFeelings, journalEntry: journalEntry)
+                }
+                // Sort notes by timestamp in descending order
+                self.notes = self.notes.sorted(by: { $0.timestamp.dateValue() > $1.timestamp.dateValue() })
+                
+                // Filter notes by their "from" property
+                self.gratitudeNotes = self.notes.filter { $0.from == "Gratitude" }
+            }
+        }
+    }
+
+
+
+    
+    func deleteNote(_ note: Note) {
+        let db = Firestore.firestore()
+        guard let userID = Auth.auth().currentUser?.uid else {
+            return
+        }
+        db.collection("users").document(userID).collection("notes").document(note.id).delete() { err in
+            if let err = err {
+                print("Error removing document: \(err)")
+            } else {
+                print("Document successfully removed!")
+            }
+        }
+    }
+}
+
+
+
+
+struct NoteView: View {
+    @State private var trigger = ""
+    @State private var physicalSymptoms = ""
+    @State private var emotionalSymptoms = ""
+    @State private var thoughts = ""
+    @State private var copingStrategies = ""
+    @State private var outcome = ""
+    @State private var reflections = ""
+    @State private var obsession = ""
+    @State private var compulsion = ""
+    @State private var difficultyLevelString = ""
+    @State private var anxietyLevelString = ""
+    @State private var thoughtsFeelings = ""
+    @State private var additionalDetails = ""
+    @State private var mood = ""
+    @State private var category = ""
+    @State private var otherFeelings: String
+    @State private var journalEntry = ""
+    @State private var date = ""
+    var userID: String
+    @State private var notes = [Note]()
+    
+    var note: Note
+    
+    init(note: Note, userID: String) {
+        self.note = note
+        self.userID = userID
+        self._trigger = State(initialValue: note.trigger)
+        self._physicalSymptoms = State(initialValue: note.physicalSymptoms)
+        self._emotionalSymptoms = State(initialValue: note.emotionalSymptoms)
+        self._thoughts = State(initialValue: note.thoughts)
+        self._copingStrategies = State(initialValue: note.copingStrategies)
+        self._outcome = State(initialValue: note.outcome)
+        self._reflections = State(initialValue: note.reflections)
+        self._obsession = State(initialValue: note.obsession)
+        self._compulsion = State(initialValue: note.compulsion)
+        self._difficultyLevelString = State(initialValue: String(note.difficultyLevel))
+        self._anxietyLevelString = State(initialValue: String(note.anxietyLevel))
+        self._thoughtsFeelings = State(initialValue: note.thoughtsFeelings)
+        self._additionalDetails = State(initialValue: note.additionalDetails)
+        self._mood = State(initialValue: note.mood)
+        self._category = State(initialValue: note.category)
+        self._otherFeelings = State(initialValue: note.otherFeelings.isEmpty ? "" : note.otherFeelings.joined(separator: ", "))
+        
+        self._journalEntry = State(initialValue: note.journalEntry)
+        
+        self._date = State(initialValue: note.date)
+    }
+    
+    var body: some View {
+        Form {
+            if note.from == "OCD Form" {
+                Section(header: Text("Trigger")) {
+                    TextField("Trigger", text: $trigger, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.trigger = note.trigger }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Physical Symptoms")) {
+                    TextField("Physical Symptoms", text: $physicalSymptoms, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.physicalSymptoms = note.physicalSymptoms }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Emotional Symptoms")) {
+                    TextField("Emotional Symptoms", text: $emotionalSymptoms, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.emotionalSymptoms = note.emotionalSymptoms }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Thoughts")) {
+                    TextField("Thoughts", text: $thoughts, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.thoughts = note.thoughts }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Obsession")) {
+                    TextField("Obsession", text: $obsession, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.obsession = note.obsession }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Compulsion")) {
+                    TextField("Compulsion", text: $compulsion, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.compulsion = note.compulsion }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Difficulty Level")) {
+                    TextField("Difficulty Level", text: $difficultyLevelString, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.difficultyLevelString = String(note.difficultyLevel) }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Anxiety Level")) {
+                    TextField("Anxiety Level", text: $anxietyLevelString, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.anxietyLevelString = String(note.anxietyLevel) }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Thoughts & Feelings")) {
+                    TextField("Thoughts & Feelings", text: $thoughtsFeelings, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.thoughtsFeelings = note.thoughtsFeelings }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Additional Details")) {
+                    TextField("Additional Details", text: $additionalDetails, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.additionalDetails = note.additionalDetails }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if note.from == "Gratitude" {
+                TextField("", text: $trigger, axis: .vertical)
+                    .disabled(true)
+                    .onAppear { self.trigger = note.trigger }
+                    .lineLimit(nil)
+            } else if note.from == "OpenJournal" {
+                TextField("", text: $trigger, axis: .vertical)
+                .disabled(true)
+                .onAppear { self.trigger = note.trigger }
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+            } else if note.from == "Mood" {
+                Section(header: Text("Mood")) {
+                    TextField("Mood", text: $mood, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.mood = note.mood }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Category")) {
+                    TextField("Category", text: $category, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.category = note.category }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section(header: Text("Trigger")) {
+                    TextField("Trigger", text: $trigger, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.trigger = note.trigger }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+//                Section(header: Text("Physical Symptoms")) {
+//                    TextField("Physical Symptoms", text: $physicalSymptoms, axis: .vertical)
+//                        .disabled(true)
+//                        .onAppear { self.physicalSymptoms = note.physicalSymptoms }
+//                        .lineLimit(nil)
+//                        .fixedSize(horizontal: false, vertical: true)
+//                }
+                Section(header: Text("Other Feelings")) {
+                    TextField("Other Feelings", text: $otherFeelings, axis: .vertical)
+                        .disabled(true)
+                    // .onAppear { self.otherFeelings = note.otherFeelings }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+//                Section(header: Text("Coping Strategies")) {
+//                    TextField("Coping Strategies", text: $copingStrategies, axis: .vertical)
+//                        .disabled(true)
+//                        .onAppear { self.copingStrategies = note.copingStrategies }
+//                        .lineLimit(nil)
+//                        .fixedSize(horizontal: false, vertical: true)
+//                }
+                Section(header: Text("Journal Entry")) {
+                    TextField("Journal Entry", text: $journalEntry, axis: .vertical)
+                        .disabled(true)
+                        .onAppear { self.journalEntry = note.journalEntry }
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+
+
+
+
+
+
+//            Section {
+//                Button("Save") {
+//                    self.saveNote()
+//                }
+//                .foregroundColor(.white)
+//                .frame(maxWidth: .infinity, alignment: .center)
+//                .padding(.all, 8.0)
+//                .background(Color.blue)
+//                .cornerRadius(10)
+//                .padding(.horizontal)
+//            }
+        }
+        .scrollContentBackground(.hidden)
+            .background(Color.white)
+        .navigationBarTitle(Text(note.from))
+        .onDisappear {
+            self.saveNote()
+        }
+    }
+    func saveNote() {
+        let db = Firestore.firestore()
+        guard let userID = Auth.auth().currentUser?.uid else {
+            return
+        }
+        
+        var difficultyLevel = Int(difficultyLevelString) ?? 0
+        var anxietyLevel = Int(anxietyLevelString) ?? 0
+        
+        var updatedFields: [String: Any] = [:]
+        
+        if note.from == "OCD Form" {
+            if trigger != note.trigger {
+                updatedFields["trigger"] = trigger
+            }
+            if physicalSymptoms != note.physicalSymptoms {
+                updatedFields["physicalSymptoms"] = physicalSymptoms
+            }
+            if emotionalSymptoms != note.emotionalSymptoms {
+                updatedFields["emotionalSymptoms"] = emotionalSymptoms
+                
+            }
+            if thoughts != note.thoughts {
+                updatedFields["thoughts"] = thoughts
+            }
+            if obsession != note.obsession {
+                updatedFields["obsession"] = obsession
+            }
+            if compulsion != note.compulsion {
+                updatedFields["compulsion"] = compulsion
+            }
+            if difficultyLevel != note.difficultyLevel {
+                updatedFields["difficultyLevel"] = difficultyLevel
+            }
+            if anxietyLevel != note.anxietyLevel {
+                updatedFields["anxietyLevel"] = anxietyLevel
+            }
+            if thoughtsFeelings != note.thoughtsFeelings {
+                updatedFields["thoughtsFeelings"] = thoughtsFeelings
+            }
+            if additionalDetails != note.additionalDetails {
+                updatedFields["additionalDetails"] = additionalDetails
+            }
+        } else if note.from == "GA Form" {
+            if trigger != note.trigger {
+                updatedFields["trigger"] = trigger
+            }
+            if physicalSymptoms != note.physicalSymptoms {
+                updatedFields["physicalSymptoms"] = physicalSymptoms
+            }
+            if emotionalSymptoms != note.emotionalSymptoms {
+                updatedFields["emotionalSymptoms"] = emotionalSymptoms
+            }
+            if thoughts != note.thoughts {
+                updatedFields["thoughts"] = thoughts
+            }
+            if copingStrategies != note.copingStrategies {
+                updatedFields["copingStrategies"] = copingStrategies
+            }
+            if outcome != note.outcome {
+                updatedFields["outcome"] = outcome
+            }
+            if reflections != note.reflections {
+                updatedFields["reflections"] = reflections
+            }
+        } else if note.from == "FFT Form" {
+            if trigger != note.trigger {
+                updatedFields["trigger"] = trigger
+            }
+            if thoughtsFeelings != note.thoughtsFeelings {
+                updatedFields["thoughtsFeelings"] = thoughtsFeelings
+            }
+            if additionalDetails != note.additionalDetails {
+                updatedFields["additionalDetails"] = additionalDetails
+            }
+        } else if note.from == "Mood" {
+            if mood != note.mood {
+                updatedFields["mood"] = mood
+            }
+            if category != note.category {
+                updatedFields["category"] = category
+            }
+            if trigger != note.trigger {
+                updatedFields["trigger"] = trigger
+            }
+            if physicalSymptoms != note.physicalSymptoms {
+                updatedFields["physicalSymptoms"] = physicalSymptoms
+            }
+            if otherFeelings != note.otherFeelings.joined(separator: ", ") {
+                updatedFields["otherFeelings"] = otherFeelings.components(separatedBy: ", ")
+            }
+            if copingStrategies != note.copingStrategies {
+                updatedFields["copingStrategies"] = copingStrategies
+            }
+            if journalEntry != note.journalEntry {
+                updatedFields["journalEntry"] = journalEntry
+            }
+        }
+        
+        if !updatedFields.isEmpty {
+            updatedFields["timestamp"] = FieldValue.serverTimestamp()
+            db.collection("users").document(userID).collection("notes").document(note.id).updateData(updatedFields) { error in
+                if let error = error {
+                    print("Error updating document: \(error.localizedDescription)")
+                } else {
+                    print("Document successfully updated")
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+
+struct OCDForm: View {
+    @State private var trigger = ""
+    @State private var physicalSymptoms = ""
+    @State private var emotionalSymptoms = ""
+    @State private var thoughts = ""
+    @State private var obsession = ""
+    @State private var compulsion = ""
+    @State private var difficultyLevel = ""
+    @State private var anxietyLevel = ""
+    @State private var thoughtsFeelings = ""
+    @State private var additionalDetails = ""
+    @Binding var isPresented: Bool
+    let userID = Auth.auth().currentUser?.uid
+    @State private var notes = [Note]()
+
+    var body: some View {
+        Form {
+            Section(header: Text("OCD Form")) {
+                TextField("Trigger", text: $trigger)
+                TextField("Physical Symptoms", text: $physicalSymptoms)
+                TextField("Emotional Symptoms", text: $emotionalSymptoms)
+                TextField("Thoughts", text: $thoughts)
+                TextField("Obsession", text: $obsession)
+                TextField("Compulsion", text: $compulsion)
+                TextField("Difficulty Level", text: $difficultyLevel)
+                TextField("Anxiety Level", text: $anxietyLevel)
+                TextField("Thoughts & Feelings", text: $thoughtsFeelings)
+                TextField("Additional Details", text: $additionalDetails)
+            }
+        }
+        .navigationBarTitle("OCD Form")
+        .navigationBarItems(trailing: Button(action: {
+            self.saveNote()
+        }) {
+            Text("Save")
+        })
+    }
+    
+    func saveNote() {
+        let db = Firestore.firestore()
+
+        if let userID = Auth.auth().currentUser?.uid {
+            db.collection("users").document(userID).collection("notes").addDocument(data: [
+                "userID": userID,
+                "from": "OCD Form",
+                "trigger": trigger,
+                "physicalSymptoms": physicalSymptoms,
+                "emotionalSymptoms": emotionalSymptoms,
+                "thoughts": thoughts,
+                "copingStrategies": "",
+                "outcome": "",
+                "reflections": "",
+                "obsession": obsession,
+                "compulsion": compulsion,
+                "difficultyLevel": difficultyLevel,
+                "anxietyLevel": anxietyLevel,
+                "thoughtsFeelings": thoughtsFeelings,
+                "additionalDetails": additionalDetails,
+                "date": Timestamp(date: Date())
+            ]) { error in
+                if let error = error {
+                    print("Error saving note: \(error.localizedDescription)")
+                } else {
+                    print("Note saved successfully!")
+                    
+                    self.isPresented = false
+                    
+                }
+            }
+        }
+    }
+}
+
+struct Gratitude: View {
+    @State private var trigger = ""
+   
+    @Binding var isPresented: Bool
+    let userID = Auth.auth().currentUser?.uid
+    @State private var notes = [Note]()
+
+    var body: some View {
+        NavigationView {
+            VStack{
+                TextField("What are you grateful for today?", text: $trigger)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+                    .submitLabel(.next)
+                    .onSubmit {
+                    }                    .padding()
+//                    .background(Color.gray.opacity(0.3).cornerRadius(10))
+                    .foregroundColor(.gray)
+                    .font(.headline)
+                Spacer()
+
+            }
+        }
+        .padding()
+        .navigationBarTitle("Gratitude")
+        .navigationBarItems(trailing: Button(action: {
+                self.saveNote()
+            }) {
+                Text("Save")
+            })
+        }
+    
+    func saveNote() {
+        let db = Firestore.firestore()
+
+        if let userID = Auth.auth().currentUser?.uid {
+            db.collection("users").document(userID).collection("notes").addDocument(data: [
+                "userID": userID,
+                "from": "Gratitude",
+                "trigger": trigger,
+                "date": Timestamp(date: Date())
+            ]) { error in
+                if let error = error {
+                    print("Error saving note: \(error.localizedDescription)")
+                } else {
+                    print("Note saved successfully!")
+                    
+                    self.isPresented = false
+                    
+                }
+            }
+        }
+    }
+}
+
+
+struct OpenJournal: View {
+    @State private var trigger = ""
+   
+    @Binding var isPresented: Bool
+    let userID = Auth.auth().currentUser?.uid
+    @State private var notes = [Note]()
+
+    var body: some View {
+        NavigationView {
+            VStack{
+                TextField("Take a moment to pause, self-discovery and reflection...", text: $trigger)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+                    .submitLabel(.next)
+                    .onSubmit {
+                    }                    .padding()
+//                    .background(Color.gray.opacity(0.3).cornerRadius(10))
+                    .foregroundColor(.gray)
+                    .font(.headline)
+                Spacer()
+
+            }
+        }
+        .padding()
+        .navigationBarTitle("Open Journal")
+        .navigationBarItems(trailing: Button(action: {
+                self.saveNote()
+            }) {
+                Text("Save")
+            })
+        }
+    
+    func saveNote() {
+        let db = Firestore.firestore()
+
+        if let userID = Auth.auth().currentUser?.uid {
+            db.collection("users").document(userID).collection("notes").addDocument(data: [
+                "userID": userID,
+                "from": "OpenJournal",
+                "trigger": trigger,
+                "date": Timestamp(date: Date())
+            ]) { error in
+                if let error = error {
+                    print("Error saving note: \(error.localizedDescription)")
+                } else {
+                    print("Note saved successfully!")
+                    
+                    self.isPresented = false
+                    
+                }
+            }
+        }
+    }
+}
+
+
+
+struct Note: Identifiable {
+    var id: String
+    var userID: String
+    var from: String
+    var trigger: String
+    var physicalSymptoms: String
+    var emotionalSymptoms: String
+    var thoughts: String
+    var copingStrategies: String
+    var outcome: String
+    var reflections: String
+    var obsession: String
+    var compulsion: String
+    var difficultyLevel: Int
+    var anxietyLevel: Int
+    var thoughtsFeelings: String
+    var additionalDetails: String
+    var timestamp: Timestamp
+    var mood: String
+    var category: String
+    var otherFeelings: [String]
+    var journalEntry: String
+    
+    var date: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: timestamp.dateValue())
+    }
+    
+    init(id: String, userID: String, from: String, trigger: String, physicalSymptoms: String = "", emotionalSymptoms: String = "", thoughts: String = "", copingStrategies: String = "", outcome: String = "", reflections: String = "", obsession: String = "", compulsion: String = "", difficultyLevel: Int = 0, anxietyLevel: Int = 0, thoughtsFeelings: String = "", additionalDetails: String = "", timestamp: Timestamp, mood: String = "", category: String = "", otherFeelings: [String] = [], journalEntry: String = "") {
+        self.id = id
+        self.userID = userID
+        self.from = from
+        self.trigger = trigger
+        self.physicalSymptoms = physicalSymptoms
+        self.emotionalSymptoms = emotionalSymptoms
+        self.thoughts = thoughts
+        self.copingStrategies = copingStrategies
+        self.outcome = outcome
+        self.reflections = reflections
+        self.obsession = obsession
+        self.compulsion = compulsion
+        self.difficultyLevel = difficultyLevel
+        self.anxietyLevel = anxietyLevel
+        self.thoughtsFeelings = thoughtsFeelings
+        self.additionalDetails = additionalDetails
+        self.timestamp = timestamp
+        self.mood = mood
+        self.category = category
+        self.otherFeelings = otherFeelings
+        self.journalEntry = journalEntry
+    }
+    
+    init(dictionary: [String: Any]) {
+        self.id = dictionary["id"] as? String ?? ""
+        self.userID = dictionary["userID"] as? String ?? ""
+        self.from = dictionary["from"] as? String ?? ""
+        self.trigger = dictionary["trigger"] as? String ?? ""
+        self.physicalSymptoms = dictionary["physicalSymptoms"] as? String ?? ""
+        self.emotionalSymptoms = dictionary["emotionalSymptoms"] as? String ?? ""
+        self.thoughts = dictionary["thoughts"] as? String ?? ""
+        self.copingStrategies = dictionary["copingStrategies"] as? String ?? ""
+        self.outcome = dictionary["outcome"] as? String ?? ""
+        self.reflections = dictionary["reflections"] as? String ?? ""
+        self.obsession = dictionary["obsession"] as? String ?? ""
+        self.compulsion = dictionary["compulsion"] as? String ?? ""
+        self.difficultyLevel = dictionary["difficultyLevel"] as? Int ?? 0
+        self.anxietyLevel = dictionary["anxietyLevel"] as? Int ?? 0
+        self.thoughtsFeelings = dictionary["thoughtsFeelings"] as? String ?? ""
+        self.additionalDetails = dictionary["additionalDetails"] as? String ?? ""
+        self.timestamp = dictionary["timestamp"] as? Timestamp ?? Timestamp(date: Date())
+        self.mood = dictionary["mood"] as? String ?? ""
+        self.category = dictionary["category"] as? String ?? ""
+        self.otherFeelings = dictionary["otherFeelings"] as? [String] ?? []
+        self.journalEntry = dictionary["journalEntry"] as? String ?? ""
+    }
+    
+    func toDictionary() -> [String: Any] {
+        return [
+            "id": id,
+            "userID": userID,
+            "from": from,
+            "trigger": trigger,
+            "physicalSymptoms": physicalSymptoms,
+            "emotionalSymptoms": emotionalSymptoms,
+            "thoughts": thoughts,
+            "copingStrategies": copingStrategies,
+            "outcome": outcome,
+            "reflections": reflections,
+            "obsession": obsession,
+            "compulsion": compulsion,
+            "difficultyLevel": difficultyLevel,
+            "anxietyLevel": anxietyLevel,
+            "thoughtsFeelings": thoughtsFeelings,
+            "additionalDetails": additionalDetails,
+            "timestamp": timestamp,
+            "mood": mood,
+            "category": category,
+            "otherFeelings": otherFeelings,
+            "journalEntry": journalEntry
+        ]
+    }
+}
+
+
+
+
+
+//
+//  MainScreen.swift
+//  looggin
+//
+//  Created by eddy mintus on 2023-02-10.
+//
+
+import Foundation
+import Firebase
+import SwiftUI
+import CoreGraphics
+
+struct MainView: View {
+    @ObservedObject var authentication: Authentication
+    @State private var selectedMood: String?
+    @Binding var selectedCategoryString: String
+    @State private var showFormSelector: Bool = false
+
+    @State var currentTab: String = "home"
+    @State private var isContextMenuVisible: Bool = false
+
+    init(authentication: Authentication, selectedCategoryString: Binding<String>) {
+        self.authentication = authentication
+        self._selectedCategoryString = selectedCategoryString
+        UITabBar.appearance().isHidden = true
+    }
+
+    var body: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                if currentTab == "home" {
+                    Homepage(authentication: authentication, selectedCategoryString: $selectedCategoryString)
+                } else if currentTab == "journal" {
+                    Home(isDisplayedInTabView: false, selectedMood: $selectedMood, selectedCategoryString: $selectedCategoryString)
+                } else if currentTab == "goals" {
+                    Eder(calendar: Calendar.current, isDisplayedInTabView: false)
+                } else if currentTab == "settings" {
+                    SettingsView(authentication: authentication)
+                }
+
+                HStack(spacing: 40) {
+                    TabButton(image: "house.fill", tab: "home")
+                    TabButton(image: "pencil.and.outline", tab: "journal")
+
+                    Button(action: {
+                        
+                                            withAnimation {
+                                                isContextMenuVisible.toggle()
+                                            }
+                                        }) {
+                        Image(systemName: isContextMenuVisible ? "minus.circle.fill" : "plus.circle.fill")
+                            .resizable()
+                            .frame(width: 45, height: 45)
+                    }
+                    .padding(.top, -5)
+
+                    TabButton(image: "checkmark.seal.fill", tab: "goals")
+                    TabButton(image: "gear.circle.fill", tab: "settings")
+                }
+                .frame(maxWidth: .infinity)
+                .background(Color(UIColor.systemBackground).ignoresSafeArea())
+            }
+            
+            if isContextMenuVisible {
+                GeometryReader { geometry in
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                isContextMenuVisible = false
+                            }) {
+                                Image(systemName: "square.and.pencil.circle.fill")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 35, height: 35)
+                            }
+                            Spacer().frame(width: 20)
+                            Button(action: {
+                                isContextMenuVisible = false
+                                showFormSelector = true
+
+                            }) {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 35, height: 35)
+                            }
+                            Spacer()
+                        }
+                        .padding(.bottom, geometry.safeAreaInsets.bottom + 15)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    func TabButton(image: String, tab: String) -> some View {
+        Button {
+            withAnimation {
+                currentTab = tab
+            }
+        } label: {
+            Image(systemName: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 25, height: 25)
+                .foregroundColor(currentTab == tab ? .accentColor : .gray)
+        }
+    }
+}
+
+
+
+
+
+
+import Foundation
+import UserNotifications
+
+class NotificationManager {
+    
+    static func scheduleNotifications() {
+        // Request authorization
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { (granted, error) in
+            if granted {
+                // Create notification content for morning reminder
+                let morningContent = UNMutableNotificationContent()
+                morningContent.title = "Good Morning! It's time to start your day with gratitude."
+                morningContent.body = "Take a moment to reflect on the good things in your life and jot them down in your gratitude journal. It'll help start your day on a positive note!"
+                morningContent.sound = UNNotificationSound.default
+                morningContent.userInfo = ["type": "gratitude"]
+
+                // Create time-based trigger for morning reminder at 9:00am
+                var morningDateComponents = DateComponents()
+                morningDateComponents.hour = 9
+                morningDateComponents.minute = 0
+                let morningTrigger = UNCalendarNotificationTrigger(dateMatching: morningDateComponents, repeats: true)
+
+                // Create notification request for morning reminder
+                let morningRequest = UNNotificationRequest(identifier: "morning-reminder", content: morningContent, trigger: morningTrigger)
+
+                // Schedule the morning reminder notification
+                UNUserNotificationCenter.current().add(morningRequest) { (error) in
+                    if let error = error {
+                        print("Error scheduling morning reminder notification: \(error.localizedDescription)")
+                    }
+                }
+                
+                // Create notification content for bedtime reflection
+                let bedtimeContent = UNMutableNotificationContent()
+                bedtimeContent.title = "Bedtime Reflection"
+                bedtimeContent.body = "Take a moment to reflect on your day and write down three things you are grateful for in your journal."
+                bedtimeContent.sound = UNNotificationSound.default
+                bedtimeContent.userInfo = ["type": "gratitude"]
+
+                // Create time-based trigger for bedtime reflection at 9:00pm
+                var bedtimeDateComponents = DateComponents()
+                bedtimeDateComponents.hour = 23
+                bedtimeDateComponents.minute = 57
+                let bedtimeTrigger = UNCalendarNotificationTrigger(dateMatching: bedtimeDateComponents, repeats: true)
+
+                // Create notification request for bedtime reflection
+                let bedtimeRequest = UNNotificationRequest(identifier: "bedtime-reflection", content: bedtimeContent, trigger: bedtimeTrigger)
+
+                // Schedule the bedtime reflection notification
+                UNUserNotificationCenter.current().add(bedtimeRequest) { (error) in
+                    if let error = error {
+                        print("Error scheduling bedtime reflection notification: \(error.localizedDescription)")
+                    }
+                }
+            } else {
+                print("Authorization not granted")
+            }
+        }
+    }
+    
+}
+
+//
+//  ContentView.swift
+//  looggin
+//
+//  Created by eddy mintus on 2023-01-28.
+//
+
+import SwiftUI
+import Firebase
+
+
+class LoginViewController: UIViewController {
+
+    @IBOutlet weak var emailTextField: UITextField!
+    @IBOutlet weak var passwordTextField: UITextField!
+    @IBOutlet weak var loginButton: UIButton!
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        loginButton.addTarget(self, action: #selector(loginButtonTapped), for: .touchUpInside)
+    }
+
+    @objc func loginButtonTapped() {
+        guard let email = emailTextField.text, let password = passwordTextField.text else { return }
+
+        Auth.auth().signIn(withEmail: email, password: password) { (result, error) in
+            if let error = error {
+                print(error.localizedDescription)
+            } else {
+                // navigate to home screen
+            }
+        }
+    }
+
+    @IBAction func signUpButtonTapped(_ sender: Any) {
+        // navigate to signup view
+    }
+}
+
+class SignUpViewController: UIViewController {
+
+    @IBOutlet weak var emailTextField: UITextField!
+    @IBOutlet weak var nameTextField: UITextField!
+    @IBOutlet weak var passwordTextField: UITextField!
+    @IBOutlet weak var confirmPasswordTextField: UITextField!
+    @IBOutlet weak var signUpButton: UIButton!
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        signUpButton.addTarget(self, action: #selector(signUpButtonTapped), for: .touchUpInside)
+    }
+
+    @objc func signUpButtonTapped() {
+        guard let email = emailTextField.text, let name = nameTextField.text, let password = passwordTextField.text, let confirmPassword = confirmPasswordTextField.text else { return }
+
+        if password != confirmPassword {
+            // show error message
+            return
+        }
+
+        Auth.auth().createUser(withEmail: email, password: password) { (result, error) in
+            if let error = error {
+                print(error.localizedDescription)
+            } else {
+                // store name and email in Firestore
+                let user = result?.user
+                let data: [String: Any] = ["name": name, "email": email]
+                Firestore.firestore().collection("users").document(user!.uid).setData(data) { err in
+                    if let err = err {
+                        print("Error writing document: \(err)")
+                    } else {
+                        // navigate to home screen
+                    }
+                }
+            }
+        }
+    }
+
+    @IBAction func logInButtonTapped(_ sender: Any) {
+        // navigate to login view
+    }
+}
+
+class NavigationViewController: UINavigationController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        //Set the first view to be login view
+        let loginViewController = self.storyboard?.instantiateViewController(withIdentifier: "LoginViewController") as! LoginViewController
+        self.pushViewController(loginViewController, animated: false)
+    }
+}
+
+
+//
+//  TagListView.swift
+//  SwiftUIDemos
+//
+//  Created by Alex Hay on 23/11/2020.
+//
+
+import SwiftUI
+
+/// A subview containing a list of all tags that are in the array. Tags flow onto the next line when wider than the view's width
+struct TagListView: View {
+    
+    @Binding var tags: [String]
+    
+    var body: some View {
+        GeometryReader { geo in
+            generateTags(in: geo)
+            .padding(.top)
+        }
+    }
+
+    /// Adds a tag view for each tag in the array. Populates from left to right and then on to new rows when too wide for the screen
+    private func generateTags(in geo: GeometryProxy) -> some View {
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+
+        return ZStack(alignment: .topLeading) {
+            ForEach(tags, id: \.self) { tag in
+                TagView(tag: tag, tags: $tags)
+                .alignmentGuide(.leading, computeValue: { tagSize in
+                    if (abs(width - tagSize.width) > geo.size.width) {
+                        width = 0
+                        height -= tagSize.height
+                    }
+                    let offset = width
+                    if tag == tags.last ?? "" {
+                        width = 0
+                    } else {
+                        width -= tagSize.width
+                    }
+                    return offset
+                })
+                .alignmentGuide(.top, computeValue: { tagSize in
+                    let offset = height
+                    if tag == tags.last ?? "" {
+                        height = 0
+                    }
+                    return offset
+                })
+            }
+        }
+    }
+}
+struct TagListView_Previews: PreviewProvider {
+    static var previews: some View {
+        TagListView(tags: .constant(["tag one", "tag two"]))
+            .padding()
+    }
+}
+
+
+
+/// A subview of a tag shown in a list. When tapped the tag will be removed from the array
+struct TagView: View {
+    
+    var tag: String
+    @Binding var tags: [String]
+    
+    var body: some View {
+        HStack {
+            Text(tag.lowercased())
+                .padding(.leading, 2)
+            Image(systemName: "xmark.circle.fill")
+                .opacity(0.4)
+                .padding(.leading, -6)
+        }
+        .foregroundColor(.white)
+        .font(.caption2)
+        .padding(4)
+        .background(Color.blue.cornerRadius(5))
+        .padding(4)
+        .onTapGesture {
+            tags = tags.filter({ $0 != tag })
+        }
+    }
+}
+
+struct TagView_Previews: PreviewProvider {
+    static var previews: some View {
+        TagView(tag: "hello world", tags: .constant(["tag one", "tag two"]))
+    }
+}
+
+
+//
+//  userprofile.swift
+//  looggin
+//
+//  Created by eddy mintus on 2023-01-29.
+//
+
+import SwiftUI
+import Firebase
+
+
+
+struct SettingsView: View {
+    @ObservedObject var authentication: Authentication
+    @State var showChangePasswordView = false
+    @State var showLogoutAlert = false
+    @State var showSavedQuotesView = false
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section(header: Text("Account")) {
+                    HStack {
+                        Image(systemName: "person.fill")
+                        Text(authentication.userName)
+
+
+                    }
+                    HStack {
+                        Image(systemName: "envelope.fill")
+                        Text(authentication.credentials.email)
+                    }
+                }
+                Section(header: Text("Settings")) {
+                    Button(action: {
+                        self.showChangePasswordView = true
+                    }) {
+                        Text("Change Password")
+                    }
+                    Button(action: {
+                        self.showSavedQuotesView = true
+                    }) {
+                        Text("Saved Quotes")
+                    }
+                }
+                Section {
+                    Button(action: {
+                        self.showLogoutAlert = true
+                    }) {
+                        Text("Log Out")
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            .listStyle(GroupedListStyle())
+            .navigationBarTitle("Settings", displayMode: .inline)
+            .alert(isPresented: $showLogoutAlert) {
+                Alert(title: Text("Log Out?"),
+                      message: Text("Are you sure you want to log out?"),
+                      primaryButton: .destructive(Text("Log Out")) {
+                        self.authentication.logout()
+                      },
+                      secondaryButton: .cancel())
+            }
+        }
+        .sheet(isPresented: $showChangePasswordView) {
+            ChangePasswordView(showChangePasswordView: $showChangePasswordView)
+        }
+
+        .sheet(isPresented: $showSavedQuotesView) {
+            SavedQuotesView(authentication: authentication)
+        }
+    }
+}
+
+
+
+struct SavedQuotesView: View {
+    @ObservedObject var authentication: Authentication
+    @State private var likedQuotes = [Quote]()
+    @State private var searchTerm = ""
+
+    var body: some View {
+        NavigationView {
+            VStack {
+                SearchBar(text: $searchTerm)
+
+                List {
+                    ForEach(likedQuotes.filter {
+                        self.searchTerm.isEmpty ? true : $0.quote.lowercased().contains(self.searchTerm.lowercased()) || $0.author.lowercased().contains(self.searchTerm.lowercased())
+                    }, id: \.quote) { likedQuote in
+                        HStack {
+                            Text("\(likedQuote.quote)")
+                            Spacer()
+                            Text("- \(likedQuote.author)")
+                        }
+                    }
+                }
+            }
+            .navigationBarTitle("Saved Quotes")
+        }
+        .onAppear {
+            // Fetch liked quotes from the database and update the likedQuotes array
+            let db = Firestore.firestore()
+            let userID = Auth.auth().currentUser!.uid
+
+            db.collection("users").document(userID).collection("liked_quotes").getDocuments { (querySnapshot, error) in
+                if let error = error {
+                    print("Error fetching liked quotes: \(error.localizedDescription)")
+                } else {
+                    for document in querySnapshot!.documents {
+                        let quote = document.get("quote") as! String
+                        let author = document.get("author") as! String
+
+                        self.likedQuotes.append(Quote(quote: quote, author: author))
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct ChangePasswordView: View {
+    @Binding var showChangePasswordView: Bool
+    @State private var currentPassword = ""
+    @State private var newPassword = ""
+    @State private var confirmPassword = ""
+
+    var body: some View {
+        NavigationView {
+            Form {
+                SecureField("Current password", text: $currentPassword)
+                SecureField("New password", text: $newPassword)
+                SecureField("Confirm password", text: $confirmPassword)
+            }
+            .navigationBarTitle("Change password")
+            .navigationBarItems(trailing: Button(action: {
+                // Perform change password action here
+                self.showChangePasswordView = false
+            }) {
+                Text("Save")
+            })
+        }
+    }
+}
+
+struct Quote: Decodable {
+    let quote: String
+    let author: String
+}
